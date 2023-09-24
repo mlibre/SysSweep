@@ -36,6 +36,8 @@ sudo rm -rfv ~/.local/share/Trash/info/*
 sudo rm -rfv ~/.local/share/Trash/files/*
 sudo rm -rfv /root/.local/share/Trash/info/*
 sudo rm -rfv /root/.local/share/Trash/files/*
+sudo rm -rfv ~/.npm/
+sudo rm -rfv /root/.npm
 
 find_and_delete_trash_folders
 
@@ -75,9 +77,7 @@ fi
 if command_exists npm; then
 	print_message "Cleaning npm cache..."
 	npm cache clean -f
-	rm -rfv ~/.npm/
 	sudo npm cache clean -f
-	sudo rm -rfv /root/.npm
 fi
 
 if command_exists yarn; then
