@@ -54,6 +54,23 @@ clean_pacman_cache() {
 	fi
 }
 
+clean_apt_cache() {
+	if command_exists apt; then
+		print_message "Cleaning pacman cache"
+		sudo apt clean
+		sudo apt -s clean
+		sudo apt clean all
+		sudo apt autoremove
+	fi
+	if command_exists apt-get; then
+		print_message "Cleaning pacman cache"
+		sudo apt-get clean
+		sudo apt-get -s clean
+		sudo apt-get clean all
+		sudo apt-get autoclean
+	fi
+}
+
 # Function to clean thumbnail cache
 clean_thumbnail_cache() {
 	print_message "Cleaning thumbnail cache"
@@ -70,7 +87,7 @@ clean_journal_logs() {
 }
 
 # Function to clean with pamac
-clean_with_pamac() {
+clean_pamac_cache() {
 	if command_exists pamac; then
 		print_message "Cleaning with pamac"
 		sudo pamac clean --keep 0 --no-confirm
@@ -107,9 +124,10 @@ main() {
 	find_and_delete_trash_folders
 	clean_temp_directories
 	clean_pacman_cache
-	clean_with_pamac
+	clean_pamac_cache
+	clean_apt_cache
 	clean_thumbnail_cache
-	vacuum_journal_logs
+	clean_journal_logs
 	clean_npm_cache
 	clean_yarn_cache
 	update_locate_database
