@@ -97,6 +97,7 @@ clean_python_cache() {
 	if command_exists pip; then
 		print_message "Cleaning pip and Python caches"
 		pip cache purge
+		sudo pip cache purge
 		sudo find /usr/lib/python* -name '__pycache__' -exec rm -r {} +
 		sudo find /home/mlibre/.local/lib/python* -name '__pycache__' -exec rm -r {} +
 	fi
