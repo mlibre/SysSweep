@@ -31,6 +31,8 @@ clean_temp_directories() {
 	sudo rm -rfv ~/.cache/ksycoca5*
 	sudo rm -rfv /root/.cache/ksycoca5*
 	sudo rm -rfv ~/.cache/thumbnails/*
+	sudo find /usr/lib/python* -name '__pycache__' -exec rm -r {} +
+	sudo find /home/mlibre/.local/lib/python* -name '__pycache__' -exec rm -r {} +
 }
 
 find_and_delete_trash_folders() {
@@ -41,11 +43,27 @@ find_and_delete_trash_folders() {
 	done <<<"$mounted_devices"
 }
 
+clean_journal_logs() {
+	if command_exists journalctl; then
+		print_message "Cleaning journal logs"
+		sudo journalctl --vacuum-time=7d
+		sudo journalctl --flush
+	fi
+}
+
 clean_flatpak_cache() {
 	if command_exists flatpak; then
 		print_message "Cleaning flatpak cache"
 		flatpak uninstall --unused -y --force-remove
 		sudo flatpak uninstall --unused -y --force-remove
+	fi
+}
+
+clean_docker() {
+	if command_exists docker; then
+		print_message "Cleaning Docker"
+		docker system prune -af
+		docker volume prune -f
 	fi
 }
 
@@ -85,21 +103,11 @@ clean_apt_cache() {
 	fi
 }
 
-clean_journal_logs() {
-	if command_exists journalctl; then
-		print_message "Cleaning journal logs"
-		sudo journalctl --vacuum-time=7d
-		sudo journalctl --flush
-	fi
-}
-
 clean_python_cache() {
 	if command_exists pip; then
 		print_message "Cleaning pip and Python caches"
 		pip cache purge
 		sudo pip cache purge
-		sudo find /usr/lib/python* -name '__pycache__' -exec rm -r {} +
-		sudo find /home/mlibre/.local/lib/python* -name '__pycache__' -exec rm -r {} +
 	fi
 }
 
@@ -130,11 +138,12 @@ update_locate_database() {
 main() {
 	clean_temp_directories
 	find_and_delete_trash_folders
+	clean_journal_logs
 	clean_flatpak_cache
+	clean_docker
 	clean_pacman_cache
 	clean_pamac_cache
 	clean_apt_cache
-	clean_journal_logs
 	clean_python_cache
 	clean_npm_cache
 	clean_yarn_cache
