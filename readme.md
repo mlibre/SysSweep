@@ -20,19 +20,20 @@ Welcome to the **SysSweep**! This is a powerful bash script that helps you clean
 1. Clone this repository to your Linux system.
 
    ```bash
-   git clone https://github.com/yourusername/linux-cache-vanishing-spell.git
+   git clone https://github.com/mlibre/SysSweep
+   cd SysSweep
    ```
 
 2. Make the script executable.
 
    ```bash
-   chmod +x linux-cache-vanishing-spell.sh
+   chmod +x SysSweep.bash
    ```
 
 3. Run the script with root privileges (use `sudo`).
 
    ```bash
-   sudo ./linux-cache-vanishing-spell.sh
+   sudo ./SysSweep.bash
    ```
 
 4. Watch the magic happen as it cleans up your system!
