@@ -17,16 +17,6 @@ print_message() {
 	echo -e ""
 }
 
-# Function to find and delete .Trash folders
-find_and_delete_trash_folders() {
-	print_message "Cleaning .Trash folders"
-	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
-	while read -r mount_point; do
-		sudo rm -rfv "${mount_point}"/.Trash-*
-	done <<<"$mounted_devices"
-}
-
-# Function to clean temporary directories
 clean_temp_directories() {
 	print_message "Cleaning temporary directories"
 	sudo rm -rfv /tmp/*
@@ -41,6 +31,14 @@ clean_temp_directories() {
 	sudo rm -rfv ~/.cache/ksycoca5*
 	sudo rm -rfv /root/.cache/ksycoca5*
 	sudo rm -rfv ~/.cache/thumbnails/*
+}
+
+find_and_delete_trash_folders() {
+	print_message "Cleaning .Trash folders"
+	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
+	while read -r mount_point; do
+		sudo rm -rfv "${mount_point}"/.Trash-*
+	done <<<"$mounted_devices"
 }
 
 clean_flatpak_cache() {
@@ -124,9 +122,9 @@ update_locate_database() {
 
 # Main function to perform all cleanup tasks
 main() {
-	clean_flatpak_cache
-	find_and_delete_trash_folders
 	clean_temp_directories
+	find_and_delete_trash_folders
+	clean_flatpak_cache
 	clean_pacman_cache
 	clean_pamac_cache
 	clean_apt_cache
