@@ -60,6 +60,13 @@ clean_pacman_cache() {
 	fi
 }
 
+clean_pamac_cache() {
+	if command_exists pamac; then
+		print_message "Cleaning with pamac"
+		sudo pamac clean --keep 0 --no-confirm
+	fi
+}
+
 clean_apt_cache() {
 	if command_exists apt; then
 		print_message "Cleaning pacman cache"
@@ -78,7 +85,6 @@ clean_apt_cache() {
 	fi
 }
 
-# Function to vacuum journal logs
 clean_journal_logs() {
 	if command_exists journalctl; then
 		print_message "Cleaning journal logs"
@@ -87,15 +93,15 @@ clean_journal_logs() {
 	fi
 }
 
-# Function to clean with pamac
-clean_pamac_cache() {
-	if command_exists pamac; then
-		print_message "Cleaning with pamac"
-		sudo pamac clean --keep 0 --no-confirm
+clean_python_cache() {
+	if command_exists pip; then
+		print_message "Cleaning pip and Python caches"
+		pip cache purge
+		sudo find /usr/lib/python* -name '__pycache__' -exec rm -r {} +
+		sudo find /home/mlibre/.local/lib/python* -name '__pycache__' -exec rm -r {} +
 	fi
 }
 
-# Function to clean npm cache
 clean_npm_cache() {
 	if command_exists npm; then
 		print_message "Cleaning npm cache"
@@ -104,7 +110,6 @@ clean_npm_cache() {
 	fi
 }
 
-# Function to clean yarn cache
 clean_yarn_cache() {
 	if command_exists yarn; then
 		print_message "Cleaning yarn cache"
@@ -129,6 +134,7 @@ main() {
 	clean_pamac_cache
 	clean_apt_cache
 	clean_journal_logs
+	clean_python_cache
 	clean_npm_cache
 	clean_yarn_cache
 	update_locate_database
