@@ -1,6 +1,6 @@
 # Sys Sweep
 
-![Magic](./nice.jpg)
+![image](./nice.jpg)
 
 Welcome to the **SysSweep**! This is a powerful bash script that helps you clean up temporary files, caches, and reclaim disk space on your Linux system. Say goodbye to digital clutter and hello to a cleaner, faster system.
 
