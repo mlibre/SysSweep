@@ -40,6 +40,7 @@ clean_temp_directories() {
 	sudo rm -rfv /root/.npm
 	sudo rm -rfv ~/.cache/ksycoca5*
 	sudo rm -rfv /root/.cache/ksycoca5*
+	sudo rm -rfv ~/.cache/thumbnails/*
 }
 
 # Function to clean pacman cache
@@ -69,12 +70,6 @@ clean_apt_cache() {
 		sudo apt-get clean all
 		sudo apt-get autoclean
 	fi
-}
-
-# Function to clean thumbnail cache
-clean_thumbnail_cache() {
-	print_message "Cleaning thumbnail cache"
-	rm -rfv ~/.cache/thumbnails/*
 }
 
 # Function to vacuum journal logs
@@ -126,7 +121,6 @@ main() {
 	clean_pacman_cache
 	clean_pamac_cache
 	clean_apt_cache
-	clean_thumbnail_cache
 	clean_journal_logs
 	clean_npm_cache
 	clean_yarn_cache
