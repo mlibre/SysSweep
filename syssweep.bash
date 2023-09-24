@@ -9,7 +9,12 @@ command_exists() {
 print_message() {
 	local message="$1"
 	local color_code="$2"
-	echo -e "\e[${color_code}m${message}\e[0m"
+	local emoji="☀️"
+
+	# Add some space before and after the message
+	echo -e ""
+	echo -e "\e[${color_code}m${emoji}  ${message}  ${emoji}\e[0m"
+	echo -e ""
 }
 
 # Print a message before cleaning temporary directories
