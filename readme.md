@@ -7,12 +7,11 @@ Welcome to the **SysSweep**! This is a powerful bash script that helps you clean
 ## Features
 
 - Removes temporary files and directories
-- Cleans up `.Trash` folders from all mounted devices
-- Cleans packages caches and orphaned packages
 - Purges thumbnail cache
-- Cleans journal logs
+- Cleans up `.Trash` folders from all mounted devices
+- Cleans logs
+- Cleans packages caches and orphaned packages
 - Cleans npm and yarn caches
-- Displays disk space usage summary
 - Cleans up Flatpak, Docker, pip cache
 - Updates the locate database
 
