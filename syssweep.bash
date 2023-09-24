@@ -20,11 +20,8 @@ print_message() {
 find_and_delete_trash_folders() {
 	print_message "Cleaning .Trash folders..."
 	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
-	while read -r device mount_point; do
-		if [ -d "${mount_point}/.Trash-${UID}" ]; then
-			rm -rfv "${mount_point}/.Trash-*"
-			echo "Deleted .Trash-${UID} on ${device} at ${mount_point}"
-		fi
+	while read -r mount_point; do
+		sudo rm -rfv "${mount_point}"/.Trash-*
 	done <<<"$mounted_devices"
 }
 
