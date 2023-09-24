@@ -19,7 +19,7 @@ print_message() {
 
 # Function to find and delete .Trash folders
 find_and_delete_trash_folders() {
-	print_message "Cleaning .Trash folders..."
+	print_message "Cleaning .Trash folders"
 	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
 	while read -r mount_point; do
 		sudo rm -rfv "${mount_point}"/.Trash-*
@@ -28,7 +28,7 @@ find_and_delete_trash_folders() {
 
 # Function to clean temporary directories
 clean_temp_directories() {
-	print_message "Cleaning temporary directories..."
+	print_message "Cleaning temporary directories"
 	sudo rm -rfv /tmp/*
 	sudo rm -rfv /var/log/*
 	sudo rm -rfv /var/tmp/*
@@ -43,7 +43,7 @@ clean_temp_directories() {
 # Function to clean pacman cache
 clean_pacman_cache() {
 	if command_exists paccache; then
-		print_message "Cleaning pacman cache..."
+		print_message "Cleaning pacman cache"
 		sudo paccache -r
 		sudo paccache -ruk0
 		sudo pacman -Rns $(pacman -Qdtq)
@@ -54,14 +54,14 @@ clean_pacman_cache() {
 
 # Function to clean thumbnail cache
 clean_thumbnail_cache() {
-	print_message "Cleaning thumbnail cache..."
+	print_message "Cleaning thumbnail cache"
 	rm -rfv ~/.cache/thumbnails/*
 }
 
 # Function to vacuum journal logs
-vacuum_journal_logs() {
+clean_journal_logs() {
 	if command_exists journalctl; then
-		print_message "Vacuuming journal logs..."
+		print_message "Cleaning journal logs"
 		sudo journalctl --vacuum-time=7d
 		sudo journalctl --flush
 	fi
@@ -70,7 +70,7 @@ vacuum_journal_logs() {
 # Function to clean with pamac
 clean_with_pamac() {
 	if command_exists pamac; then
-		print_message "Cleaning with pamac..."
+		print_message "Cleaning with pamac"
 		sudo pamac clean --keep 0 --no-confirm
 	fi
 }
@@ -78,7 +78,7 @@ clean_with_pamac() {
 # Function to clean npm cache
 clean_npm_cache() {
 	if command_exists npm; then
-		print_message "Cleaning npm cache..."
+		print_message "Cleaning npm cache"
 		npm cache clean -f
 		sudo npm cache clean -f
 	fi
@@ -87,7 +87,7 @@ clean_npm_cache() {
 # Function to clean yarn cache
 clean_yarn_cache() {
 	if command_exists yarn; then
-		print_message "Cleaning yarn cache..."
+		print_message "Cleaning yarn cache"
 		yarn cache clean
 	fi
 }
@@ -95,7 +95,7 @@ clean_yarn_cache() {
 # Function to update locate database
 update_locate_database() {
 	if command_exists updatedb; then
-		print_message "Updating locate database..."
+		print_message "Updating locate database"
 		sudo updatedb
 	fi
 }
@@ -104,11 +104,10 @@ update_locate_database() {
 main() {
 	find_and_delete_trash_folders
 	clean_temp_directories
-	clean_package_cache
-	clean_thumbnail_cache
-	remove_orphaned_packages
-	vacuum_journal_logs
+	clean_pacman_cache
 	clean_with_pamac
+	clean_thumbnail_cache
+	vacuum_journal_logs
 	clean_npm_cache
 	clean_yarn_cache
 	update_locate_database
