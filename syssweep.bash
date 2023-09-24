@@ -5,6 +5,14 @@ command_exists() {
 	type "$1" &>/dev/null
 }
 
+sudo rm -rf /tmp/*
+sudo rm -rf /var/log/*
+sudo rm -rf /var/tmp/*
+sudo rm -rf ~/.local/share/Trash/info/*
+sudo rm -rf ~/.local/share/Trash/files/*
+sudo rm -rf /root/.local/share/Trash/info/*
+sudo rm -rf /root/.local/share/Trash/files/*
+
 # Clean up package cache if paccache command exists
 if command_exists paccache; then
 	sudo paccache -r
@@ -31,14 +39,6 @@ fi
 if command_exists pamac; then
 	sudo pamac clean --keep 0 --no-confirm
 fi
-
-sudo rm -rf /tmp/*
-sudo rm -rf /var/log/*
-sudo rm -rf /var/tmp/*
-sudo rm -rf ~/.local/share/Trash/info/*
-sudo rm -rf ~/.local/share/Trash/files/*
-sudo rm -rf /root/.local/share/Trash/info/*
-sudo rm -rf /root/.local/share/Trash/files/*
 
 # Clean up npm and yarn caches if npm and yarn commands exist
 if command_exists npm; then
