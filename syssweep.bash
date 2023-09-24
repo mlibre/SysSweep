@@ -17,17 +17,30 @@ print_message() {
 	echo -e ""
 }
 
+find_and_delete_trash_folders() {
+	print_message "Cleaning .Trash folders..."
+	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
+	while read -r device mount_point; do
+		if [ -d "${mount_point}/.Trash-${UID}" ]; then
+			rm -rfv "${mount_point}/.Trash-*"
+			echo "Deleted .Trash-${UID} on ${device} at ${mount_point}"
+		fi
+	done <<<"$mounted_devices"
+}
+
 # Print a message before cleaning temporary directories
 print_message "Cleaning temporary directories..."
 
 # Clean up temporary directories
-sudo rm -rf /tmp/*
-sudo rm -rf /var/log/*
-sudo rm -rf /var/tmp/*
-sudo rm -rf ~/.local/share/Trash/info/*
-sudo rm -rf ~/.local/share/Trash/files/*
-sudo rm -rf /root/.local/share/Trash/info/*
-sudo rm -rf /root/.local/share/Trash/files/*
+sudo rm -rfv /tmp/*
+sudo rm -rfv /var/log/*
+sudo rm -rfv /var/tmp/*
+sudo rm -rfv ~/.local/share/Trash/info/*
+sudo rm -rfv ~/.local/share/Trash/files/*
+sudo rm -rfv /root/.local/share/Trash/info/*
+sudo rm -rfv /root/.local/share/Trash/files/*
+
+find_and_delete_trash_folders
 
 # Clean up package cache if paccache command exists
 if command_exists paccache; then
@@ -38,7 +51,7 @@ fi
 
 # Clean up thumbnail cache
 print_message "Cleaning thumbnail cache..."
-rm -rf ~/.cache/thumbnails/*
+rm -rfv ~/.cache/thumbnails/*
 
 # Remove orphaned packages if pacman command exists
 if command_exists pacman; then
@@ -65,9 +78,9 @@ fi
 if command_exists npm; then
 	print_message "Cleaning npm cache..."
 	npm cache clean -f
-	rm -r ~/.npm/
+	rm -rfv ~/.npm/
 	sudo npm cache clean -f
-	sudo rm -r /root/.npm
+	sudo rm -rfv /root/.npm
 fi
 
 if command_exists yarn; then
