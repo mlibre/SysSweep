@@ -7,13 +7,14 @@ Welcome to the **SysSweep**! This is a powerful bash script that helps you clean
 ## Features
 
 - Removes temporary files and directories
-- Cleans package cache
+- Cleans up `.Trash` folders from all mounted devices
+- Cleans packages caches and orphaned packages
 - Purges thumbnail cache
-- Removes orphaned packages
-- Vacuum journal logs
-- Cleans npm and yarn caches (if you're a Node.js wizard)
-- Updates the locate database
+- Cleans journal logs
+- Cleans npm and yarn caches
 - Displays disk space usage summary
+- Cleans up Flatpak, Docker, pip cache
+- Updates the locate database
 
 ## Usage
 
@@ -27,13 +28,14 @@ Welcome to the **SysSweep**! This is a powerful bash script that helps you clean
 2. Make the script executable.
 
    ```bash
-   chmod +x SysSweep.bash
+   chmod +x syssweep.bash
    ```
 
-3. Run the script with root privileges (use `sudo`).
+3. Run the script with and without root privileges
 
    ```bash
-   sudo ./SysSweep.bash
+   ./syssweep.bash
+   sudo ./syssweep.bash
    ```
 
 4. Watch the magic happen as it cleans up your system!
