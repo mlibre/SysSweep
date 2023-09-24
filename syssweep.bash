@@ -17,6 +17,7 @@ print_message() {
 	echo -e ""
 }
 
+# Function to find and delete .Trash folders
 find_and_delete_trash_folders() {
 	print_message "Cleaning .Trash folders..."
 	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
@@ -25,72 +26,97 @@ find_and_delete_trash_folders() {
 	done <<<"$mounted_devices"
 }
 
-# Print a message before cleaning temporary directories
-print_message "Cleaning temporary directories..."
+# Function to clean temporary directories
+clean_temp_directories() {
+	print_message "Cleaning temporary directories..."
+	sudo rm -rfv /tmp/*
+	sudo rm -rfv /var/log/*
+	sudo rm -rfv /var/tmp/*
+	sudo rm -rfv ~/.local/share/Trash/info/*
+	sudo rm -rfv ~/.local/share/Trash/files/*
+	sudo rm -rfv /root/.local/share/Trash/info/*
+	sudo rm -rfv /root/.local/share/Trash/files/*
+	sudo rm -rfv ~/.npm/
+	sudo rm -rfv /root/.npm
+}
 
-# Clean up temporary directories
-sudo rm -rfv /tmp/*
-sudo rm -rfv /var/log/*
-sudo rm -rfv /var/tmp/*
-sudo rm -rfv ~/.local/share/Trash/info/*
-sudo rm -rfv ~/.local/share/Trash/files/*
-sudo rm -rfv /root/.local/share/Trash/info/*
-sudo rm -rfv /root/.local/share/Trash/files/*
-sudo rm -rfv ~/.npm/
-sudo rm -rfv /root/.npm
+# Function to clean pacman cache
+clean_pacman_cache() {
+	if command_exists paccache; then
+		print_message "Cleaning pacman cache..."
+		sudo paccache -r
+		sudo paccache -ruk0
+		sudo pacman -Rns $(pacman -Qdtq)
+		sudo pacman -Rns $(pacman -Qdtq)
+		yes | sudo pacman -Scc
+	fi
+}
 
-find_and_delete_trash_folders
+# Function to clean thumbnail cache
+clean_thumbnail_cache() {
+	print_message "Cleaning thumbnail cache..."
+	rm -rfv ~/.cache/thumbnails/*
+}
 
-# Clean up package cache if paccache command exists
-if command_exists paccache; then
-	print_message "Cleaning package cache..."
-	sudo paccache -r
-	sudo paccache -ruk0
-fi
+# Function to vacuum journal logs
+vacuum_journal_logs() {
+	if command_exists journalctl; then
+		print_message "Vacuuming journal logs..."
+		sudo journalctl --vacuum-time=7d
+		sudo journalctl --flush
+	fi
+}
 
-# Clean up thumbnail cache
-print_message "Cleaning thumbnail cache..."
-rm -rfv ~/.cache/thumbnails/*
+# Function to clean with pamac
+clean_with_pamac() {
+	if command_exists pamac; then
+		print_message "Cleaning with pamac..."
+		sudo pamac clean --keep 0 --no-confirm
+	fi
+}
 
-# Remove orphaned packages if pacman command exists
-if command_exists pacman; then
-	print_message "Removing orphaned packages..."
-	sudo pacman -Rns $(pacman -Qdtq)
-	sudo pacman -Rns $(pacman -Qdtq)
-	yes | sudo pacman -Scc
-fi
+# Function to clean npm cache
+clean_npm_cache() {
+	if command_exists npm; then
+		print_message "Cleaning npm cache..."
+		npm cache clean -f
+		sudo npm cache clean -f
+	fi
+}
 
-# Vacuum journal logs if journalctl command exists
-if command_exists journalctl; then
-	print_message "Vacuuming journal logs..."
-	sudo journalctl --vacuum-time=7d
-	sudo journalctl --flush
-fi
+# Function to clean yarn cache
+clean_yarn_cache() {
+	if command_exists yarn; then
+		print_message "Cleaning yarn cache..."
+		yarn cache clean
+	fi
+}
 
-# Clean up using pamac if pamac command exists
-if command_exists pamac; then
-	print_message "Cleaning with pamac..."
-	sudo pamac clean --keep 0 --no-confirm
-fi
+# Function to update locate database
+update_locate_database() {
+	if command_exists updatedb; then
+		print_message "Updating locate database..."
+		sudo updatedb
+	fi
+}
 
-# Clean up npm and yarn caches if npm and yarn commands exist
-if command_exists npm; then
-	print_message "Cleaning npm cache..."
-	npm cache clean -f
-	sudo npm cache clean -f
-fi
+# Main function to perform all cleanup tasks
+main() {
+	find_and_delete_trash_folders
+	clean_temp_directories
+	clean_package_cache
+	clean_thumbnail_cache
+	remove_orphaned_packages
+	vacuum_journal_logs
+	clean_with_pamac
+	clean_npm_cache
+	clean_yarn_cache
+	update_locate_database
 
-if command_exists yarn; then
-	print_message "Cleaning yarn cache..."
-	yarn cache clean
-fi
+	# Display disk space usage
+	print_message "Disk space usage:"
+	df -h
+}
 
-# Update the file database for locate command if updatedb command exists
-if command_exists updatedb; then
-	print_message "Updating locate database..."
-	sudo updatedb
-fi
-
-# Display disk space usage
-print_message "Disk space usage:"
-df -h
+# Call the main function to execute all cleanup tasks
+main
