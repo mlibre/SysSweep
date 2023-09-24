@@ -38,6 +38,8 @@ clean_temp_directories() {
 	sudo rm -rfv /root/.local/share/Trash/files/*
 	sudo rm -rfv ~/.npm/
 	sudo rm -rfv /root/.npm
+	sudo rm -rfv ~/.cache/ksycoca5*
+	sudo rm -rfv /root/.cache/ksycoca5*
 }
 
 # Function to clean pacman cache
