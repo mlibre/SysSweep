@@ -87,14 +87,14 @@ clean_pamac_cache() {
 
 clean_apt_cache() {
 	if command_exists apt; then
-		print_message "Cleaning pacman cache"
+		print_message "Cleaning apt cache"
 		sudo apt autoremove --purge
 		sudo apt clean
 		sudo apt -s clean
 		sudo apt clean all
 	fi
 	if command_exists apt-get; then
-		print_message "Cleaning pacman cache"
+		print_message "Cleaning apt-get cache"
 		sudo apt-get autoremove --purge
 		sudo apt-get clean
 		sudo apt-get -s clean
