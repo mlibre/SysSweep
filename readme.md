@@ -53,3 +53,7 @@ Contributions and improvements to this spell are welcome! Feel free to fork this
 This project is licensed under the CC0
 
 Happy spellcasting and enjoy your squeaky clean Linux system!
+
+## My ETH Address
+
+> 0xc9b64496986E7b6D4A68fDF69eF132A35e91838e
