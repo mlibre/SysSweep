@@ -39,11 +39,6 @@ Welcome to the **SysSweep**! This is a powerful bash script that helps you clean
 
 4. Watch the magic happen as it cleans up your system!
 
-## Requirements
-
-- A Linux-based operating system
-- Depending on the package manager used, certain functions may require specific packages (e.g., `paccache` for Pacman-based systems)
-
 ## Contribution
 
 Contributions and improvements to this spell are welcome! Feel free to fork this repository and submit pull requests.
