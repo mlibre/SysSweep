@@ -46,8 +46,9 @@ find_and_delete_trash_folders() {
 clean_journal_logs() {
 	if command_exists journalctl; then
 		print_message "Cleaning journal logs"
-		sudo journalctl --vacuum-time=7d
 		sudo journalctl --flush
+		sudo journalctl --flush --vacuum-time=1s
+		journalctl --user --flush --vacuum-time=1s
 	fi
 }
 
@@ -88,14 +89,14 @@ clean_pamac_cache() {
 clean_apt_cache() {
 	if command_exists apt; then
 		print_message "Cleaning apt cache"
-		sudo apt autoremove --purge
+		sudo apt autoremove --purge -y
 		sudo apt clean
 		sudo apt -s clean
 		sudo apt clean all
 	fi
 	if command_exists apt-get; then
 		print_message "Cleaning apt-get cache"
-		sudo apt-get autoremove --purge
+		sudo apt-get autoremove --purge -y
 		sudo apt-get clean
 		sudo apt-get -s clean
 		sudo apt-get clean all
