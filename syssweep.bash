@@ -476,9 +476,11 @@ clean_python_cache() {
 	if $DRY_RUN; then
 		# Check pip cache
 		if command_exists pip; then
-			local pip_dir
-			pip_dir="$(pip cache dir 2>/dev/null)"
-			print_status "pip cache (~$(size_of "$pip_dir")) would be purged" dry
+			local user_pip root_pip
+			user_pip=$(sudo -u "$REAL_USER" pip cache dir 2>/dev/null || echo "/home/${REAL_USER}/.cache/pip")
+			root_pip=$(pip cache dir 2>/dev/null || echo "/root/.cache/pip")
+			print_status "User pip cache (~$(size_of "$user_pip")) would be purged" dry
+			print_status "Root pip cache (~$(size_of "$root_pip")) would be purged" dry
 		fi
 
 		# Check __pycache__ dirs
@@ -489,9 +491,11 @@ clean_python_cache() {
 		fi
 	else
 		if command_exists pip; then
+			sudo -u "$REAL_USER" pip cache purge 2>/dev/null || true
+			print_status "Purged pip cache (user)" ok
 			pip cache purge 2>/dev/null || true
-			print_status "Purged pip cache" ok
-			log "Purged pip cache"
+			print_status "Purged pip cache (root)" ok
+			log "Purged pip cache (user + root)"
 		fi
 
 		# Remove __pycache__ dirs in user space
@@ -519,14 +523,19 @@ clean_npm_cache() {
 	print_header "Cleaning npm cache"
 	log "Starting npm cache cleanup"
 
+	# Clean npm cache for real user
 	if $DRY_RUN; then
-		local npm_size
-		npm_size=$(npm cache ls 2>/dev/null | wc -l || echo "?")
-		print_status "npm cache (~${npm_size} packages) would be cleaned" dry
+		local user_cache root_cache
+		user_cache=$(sudo -u "$REAL_USER" npm config get cache 2>/dev/null || echo "/home/${REAL_USER}/.npm")
+		root_cache=$(npm config get cache 2>/dev/null || echo "/root/.npm")
+		print_status "User npm cache (~$(size_of "$user_cache")) would be cleaned" dry
+		print_status "Root npm cache (~$(size_of "$root_cache")) would be cleaned" dry
 	else
+		sudo -u "$REAL_USER" npm cache clean --force 2>/dev/null || true
+		print_status "Cleaned npm cache (user)" ok
 		npm cache clean --force 2>/dev/null || true
-		print_status "Cleaned npm cache" ok
-		log "npm cache cleaned"
+		print_status "Cleaned npm cache (root)" ok
+		log "npm cache cleaned (user + root)"
 	fi
 }
 
@@ -545,15 +554,21 @@ clean_yarn_cache() {
 	log "Starting yarn cache cleanup"
 
 	if $DRY_RUN; then
-		local yarn_dir
-		yarn_dir=$(yarn cache dir 2>/dev/null || echo "")
-		if [[ -n "$yarn_dir" && -d "$yarn_dir" ]]; then
-			print_status "yarn cache (~$(size_of "$yarn_dir")) would be cleaned" dry
+		local user_yarn root_yarn
+		user_yarn=$(sudo -u "$REAL_USER" yarn cache dir 2>/dev/null || echo "/home/${REAL_USER}/.cache/yarn")
+		root_yarn=$(yarn cache dir 2>/dev/null || echo "/root/.cache/yarn")
+		if [[ -d "$user_yarn" ]]; then
+			print_status "User yarn cache (~$(size_of "$user_yarn")) would be cleaned" dry
+		fi
+		if [[ -d "$root_yarn" ]]; then
+			print_status "Root yarn cache (~$(size_of "$root_yarn")) would be cleaned" dry
 		fi
 	else
+		sudo -u "$REAL_USER" yarn cache clean 2>/dev/null || true
+		print_status "Cleaned yarn cache (user)" ok
 		yarn cache clean 2>/dev/null || true
-		print_status "Cleaned yarn cache" ok
-		log "yarn cache cleaned"
+		print_status "Cleaned yarn cache (root)" ok
+		log "yarn cache cleaned (user + root)"
 	fi
 }
 
@@ -571,18 +586,28 @@ clean_cargo_cache() {
 	print_header "Cleaning Cargo cache"
 	log "Starting Cargo cache cleanup"
 
-	local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+	local user_cargo="/home/${REAL_USER}/.cargo"
+	local root_cargo="/root/.cargo"
 
 	if $DRY_RUN; then
-		print_status "Cargo registry (~$(size_of "${cargo_home}/registry")) would be cleaned" dry
+		if [[ -d "${user_cargo}/registry" ]]; then
+			print_status "User Cargo registry (~$(size_of "${user_cargo}/registry")) would be cleaned" dry
+		fi
+		if [[ -d "${root_cargo}/registry" ]]; then
+			print_status "Root Cargo registry (~$(size_of "${root_cargo}/registry")) would be cleaned" dry
+		fi
 	else
-		cargo install --list 2>/dev/null | grep -q '.' || true
-		cargo cache --autoclean 2>/dev/null || {
-			# Fallback: manually clean registry cache
-			rm -rf "${cargo_home}/registry/cache"/* 2>/dev/null || true
-		}
-		print_status "Cleaned Cargo cache" ok
-		log "Cargo cache cleaned"
+		# Clean user cargo cache
+		if [[ -d "${user_cargo}/registry/cache" ]]; then
+			sudo rm -rf "${user_cargo}/registry/cache/"* 2>/dev/null || true
+			print_status "Cleaned Cargo cache (user)" ok
+		fi
+		# Clean root cargo cache
+		if [[ -d "${root_cargo}/registry/cache" ]]; then
+			sudo rm -rf "${root_cargo}/registry/cache/"* 2>/dev/null || true
+			print_status "Cleaned Cargo cache (root)" ok
+		fi
+		log "Cargo cache cleaned (user + root)"
 	fi
 }
 
@@ -601,14 +626,22 @@ clean_go_cache() {
 	log "Starting Go cache cleanup"
 
 	if $DRY_RUN; then
-		local go_cache="${HOME}/.cache/go-build"
-		if [[ -d "$go_cache" ]]; then
-			print_status "Go build cache (~$(size_of "$go_cache")) would be cleaned" dry
+		local user_go="/home/${REAL_USER}/.cache/go-build"
+		local root_go="/root/.cache/go-build"
+		if [[ -d "$user_go" ]]; then
+			print_status "User Go build cache (~$(size_of "$user_go")) would be cleaned" dry
+		fi
+		if [[ -d "$root_go" ]]; then
+			print_status "Root Go build cache (~$(size_of "$root_go")) would be cleaned" dry
 		fi
 	else
+		# Clean user go cache
+		sudo -u "$REAL_USER" go clean -cache 2>/dev/null || true
+		print_status "Cleaned Go build cache (user)" ok
+		# Clean root go cache
 		go clean -cache 2>/dev/null || true
-		print_status "Cleaned Go build cache" ok
-		log "Go cache cleaned"
+		print_status "Cleaned Go build cache (root)" ok
+		log "Go cache cleaned (user + root)"
 	fi
 }
 
