@@ -36,7 +36,8 @@ Options:
   --skip <function>  Skip a cleanup function (repeatable)
                      Available: temp, trash, journal, flatpak, docker,
                      pacman, pamac, apt, python, npm, yarn, cargo,
-                     go, snap, mesa, fontconfig, locate
+                     go, snap, mesa, fontconfig, coredumps, electron,
+                     buildtools, oldlogs, swaps, tex, locate
   --help             Show this help message
   --version          Show version
 
@@ -370,7 +371,15 @@ clean_pacman_cache() {
 	if $DRY_RUN; then
 		print_status "Would remove all cached packages except latest 2" dry
 		print_status "Would remove all cached packages for uninstalled versions" dry
-		print_status "Would remove orphaned packages" dry
+		local orphan_list
+		orphan_list=$(pacman -Qdtq 2>/dev/null || true)
+		if [[ -n "$orphan_list" ]]; then
+			local orphan_count
+			orphan_count=$(echo "$orphan_list" | wc -l)
+			print_status "${orphan_count} orphaned packages would be removed: $(echo "$orphan_list" | tr '\n' ' ')" dry
+		else
+			print_status "No orphaned packages found" ok
+		fi
 	else
 		# Keep latest 2 versions of installed packages
 		sudo paccache -r 2>/dev/null || true
@@ -696,6 +705,284 @@ clean_fontconfig_cache() {
 	fi
 }
 
+clean_core_dumps() {
+	if is_skipped "coredumps"; then
+		print_status "Core dumps" skip
+		return
+	fi
+
+	print_header "Cleaning core dumps"
+	log "Starting core dump cleanup"
+
+	# systemd coredumps
+	local coredump_dir="/var/lib/systemd/coredump"
+	if [[ -d "$coredump_dir" ]]; then
+		if $DRY_RUN; then
+			print_status "Core dumps (~$(size_of "$coredump_dir")) would be removed" dry
+		else
+			sudo rm -rf "${coredump_dir:?}"/* 2>/dev/null || true
+			print_status "Removed systemd core dumps" ok
+			log "Removed core dumps"
+		fi
+	fi
+
+	# /var/crash (Debian/Ubuntu)
+	local crash_dir="/var/crash"
+	if [[ -d "$crash_dir" ]]; then
+		if $DRY_RUN; then
+			print_status "Crash dumps (~$(size_of "$crash_dir")) would be removed" dry
+		else
+			sudo find "$crash_dir" -type f -mtime +1 -delete 2>/dev/null || true
+			print_status "Removed old crash dumps" ok
+			log "Removed crash dumps"
+		fi
+	fi
+}
+
+clean_electron_caches() {
+	if is_skipped "electron"; then
+		print_status "Electron app caches" skip
+		return
+	fi
+
+	print_header "Cleaning Electron app caches"
+	log "Starting Electron cache cleanup"
+
+	local -A electron_apps=(
+		["VSCode"]="${HOME}/.cache/vscode"
+		["Discord"]="${HOME}/.cache/discord"
+		["Slack"]="${HOME}/.cache/Slack"
+		["Spotify"]="${HOME}/.cache/spotify"
+		["Element"]="${HOME}/.cache/element"
+		["Signal"]="${HOME}/.cache/Signal"
+	)
+
+	# Also check legacy ~/.config locations
+	local -A electron_apps_config=(
+		["VSCode"]="${HOME}/.config/Code"
+		["Discord"]="${HOME}/.config/discord"
+		["Slack"]="${HOME}/.config/Slack"
+	)
+
+	local all_dirs=()
+	for cache_base in "${electron_apps[@]}" "${electron_apps_config[@]}"; do
+		if [[ -d "$cache_base" ]]; then
+			all_dirs+=("$cache_base")
+		fi
+	done
+
+	for app_cache in "${all_dirs[@]}"; do
+		for cache_subdir in Cache "Code Cache" GPUCache; do
+			while IFS= read -r -d '' d; do
+				if $DRY_RUN; then
+					print_status "${d} (~$(size_of "$d")) would be cleaned" dry
+				else
+					sudo rm -rf "${d:?}"/* 2>/dev/null || true
+					print_status "Cleared ${d}" ok
+					log "Cleared ${d}"
+				fi
+			done < <(find "$app_cache" -maxdepth 3 -type d -name "$cache_subdir" -print0 2>/dev/null)
+		done
+	done
+}
+
+clean_build_tool_caches() {
+	if is_skipped "buildtools"; then
+		print_status "Build tool caches" skip
+		return
+	fi
+
+	print_header "Cleaning build tool caches"
+	log "Starting build tool cache cleanup"
+
+	local -A build_caches=(
+		["Gradle"]="${HOME}/.gradle/caches"
+		["Gradle wrapper"]="${HOME}/.gradle/wrapper/dists"
+		["Maven"]="${HOME}/.m2/repository"
+		["Ccache"]="${HOME}/.cache/ccache"
+		["CMake"]="${HOME}/.cache/CMakeCache"
+	)
+
+	for tool in "${!build_caches[@]}"; do
+		local cache_dir="${build_caches[$tool]}"
+		if [[ -d "$cache_dir" ]]; then
+			if $DRY_RUN; then
+				print_status "${tool} (~$(size_of "$cache_dir")) would be cleaned" dry
+			else
+				sudo rm -rf "${cache_dir:?}"/* 2>/dev/null || true
+				print_status "Cleared ${tool} cache" ok
+				log "Cleared ${tool} cache"
+			fi
+		fi
+	done
+
+	# Also run ccache -C if available
+	if command_exists ccache; then
+		if ! $DRY_RUN; then
+			ccache -C 2>/dev/null || true
+			print_status "Reset ccache statistics" ok
+		fi
+	fi
+}
+
+clean_old_logs() {
+	if is_skipped "oldlogs"; then
+		print_status "Old rotated logs" skip
+		return
+	fi
+
+	print_header "Cleaning old rotated logs"
+	log "Starting old log cleanup"
+
+	local log_patterns=(
+		"/var/log/*.gz"
+		"/var/log/*.xz"
+		"/var/log/*.Zst"
+		"/var/log/*.old"
+		"/var/log/*.1"
+		"/var/log/*/*.gz"
+		"/var/log/*/*.xz"
+	)
+
+	if $DRY_RUN; then
+		local count=0
+		for pattern in "${log_patterns[@]}"; do
+			while IFS= read -r -d '' f; do
+				count=$((count + 1))
+			done < <(find /var/log -maxdepth 2 -name "${pattern##*/}" -mtime +90 -print0 2>/dev/null)
+		done
+		if [[ $count -gt 0 ]]; then
+			print_status "${count} old rotated logs would be removed" dry
+		fi
+	else
+		local count=0
+		for pattern in "${log_patterns[@]}"; do
+			while IFS= read -r -d '' f; do
+				sudo rm -f "$f" 2>/dev/null || true
+				count=$((count + 1))
+			done < <(find /var/log -maxdepth 2 -name "${pattern##*/}" -mtime +90 -print0 2>/dev/null)
+		done
+		if [[ $count -gt 0 ]]; then
+			print_status "Removed ${count} old rotated logs" ok
+			log "Removed ${count} old rotated logs"
+		else
+			print_status "No old rotated logs found" ok
+		fi
+	fi
+
+	# Clean old dpkg logs (Debian/Ubuntu)
+	if [[ -d /var/log/dpkg ]]; then
+		if $DRY_RUN; then
+			print_status "DPKG logs older than 90 days would be removed" dry
+		else
+			sudo find /var/log/dpkg -name 'dpkg.log.*.gz' -mtime +90 -delete 2>/dev/null || true
+			print_status "Cleaned old DPKG logs" ok
+		fi
+	fi
+
+	# Clean old apt logs (Debian/Ubuntu)
+	if [[ -d /var/log/apt ]]; then
+		if $DRY_RUN; then
+			print_status "APT logs older than 30 days would be removed" dry
+		else
+			sudo find /var/log/apt -name '*.gz' -mtime +30 -delete 2>/dev/null || true
+			print_status "Cleaned old APT logs" ok
+		fi
+	fi
+}
+
+clean_editor_swap_files() {
+	if is_skipped "swaps"; then
+		print_status "Editor swap files" skip
+		return
+	fi
+
+	print_header "Cleaning editor swap/backup files"
+	log "Starting editor swap file cleanup"
+
+	if $DRY_RUN; then
+		local vim_count emacs_count nano_count
+		vim_count=$(find "${HOME}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		emacs_count=$(find "${HOME}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
+		nano_count=$(find "${HOME}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+
+		[[ $vim_count -gt 0 ]] && print_status "${vim_count} Vim swap files would be removed" dry
+		[[ $emacs_count -gt 0 ]] && print_status "${emacs_count} Emacs auto-save files would be removed" dry
+		[[ $nano_count -gt 0 ]] && print_status "${nano_count} Nano backup files would be removed" dry
+	else
+		local total=0
+
+		# Vim swap files
+		local vim_count
+		vim_count=$(find "${HOME}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		if [[ $vim_count -gt 0 ]]; then
+			find "${HOME}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -delete 2>/dev/null || true
+			total=$((total + vim_count))
+		fi
+
+		# Emacs auto-save files
+		local emacs_count
+		emacs_count=$(find "${HOME}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
+		if [[ $emacs_count -gt 0 ]]; then
+			find "${HOME}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' -delete 2>/dev/null || true
+			total=$((total + emacs_count))
+		fi
+
+		# Nano backup files
+		local nano_count
+		nano_count=$(find "${HOME}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		if [[ $nano_count -gt 0 ]]; then
+			find "${HOME}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' -delete 2>/dev/null || true
+			total=$((total + nano_count))
+		fi
+
+		if [[ $total -gt 0 ]]; then
+			print_status "Removed ${total} editor swap/backup files" ok
+			log "Removed ${total} editor swap files"
+		else
+			print_status "No editor swap files found" ok
+		fi
+	fi
+}
+
+clean_tex_cache() {
+	if is_skipped "tex"; then
+		print_status "TeX cache" skip
+		return
+	fi
+
+	if ! command_exists kpsewhich; then
+		print_status "TeX not installed" warn
+		return
+	fi
+
+	print_header "Cleaning TeX cache"
+	log "Starting TeX cache cleanup"
+
+	local tex_dirs=(
+		"${HOME}/.cache/texmf"
+		"${HOME}/.texlive"
+	)
+
+	for dir in "${tex_dirs[@]}"; do
+		if [[ -d "$dir" ]]; then
+			if $DRY_RUN; then
+				print_status "${dir} (~$(size_of "$dir")) would be cleaned" dry
+			else
+				sudo rm -rf "${dir:?}"/* 2>/dev/null || true
+				print_status "Cleared ${dir}" ok
+				log "Cleared ${dir}"
+			fi
+		fi
+	done
+
+	# Rebuild TeX filename database
+	if ! $DRY_RUN && command_exists mktexlsr; then
+		mktexlsr 2>/dev/null || true
+		print_status "Rebuilt TeX filename database" ok
+	fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
@@ -749,6 +1036,12 @@ main() {
 	clean_snap_cache
 	clean_mesa_shader_cache
 	clean_fontconfig_cache
+	clean_core_dumps
+	clean_electron_caches
+	clean_build_tool_caches
+	clean_old_logs
+	clean_editor_swap_files
+	clean_tex_cache
 
 	# Show disk usage after
 	echo ""
