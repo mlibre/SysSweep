@@ -403,6 +403,34 @@ clean_docker() {
 	fi
 }
 
+clean_docker_builder_cache() {
+	if is_skipped "dockerbuilder"; then
+		print_status "Docker builder cache" skip
+		return
+	fi
+
+	if ! command_exists docker; then
+		print_status "docker not found" warn
+		return
+	fi
+
+	if ! docker info >/dev/null 2>&1; then
+		print_status "Docker daemon is not reachable" warn
+		return
+	fi
+
+	print_header "Cleaning Docker builder cache"
+	log "Starting Docker builder cache cleanup"
+
+	if $DRY_RUN; then
+		print_status "docker builder prune --all --force would be run" dry
+	else
+		docker builder prune --all --force 2>/dev/null || true
+		print_status "Cleaned Docker builder cache" ok
+		log "Cleaned Docker builder cache"
+	fi
+}
+
 clean_pacman_cache() {
 	if is_skipped "pacman"; then
 		print_status "Pacman cache" skip
@@ -570,6 +598,85 @@ clean_package_manager_caches() {
 
 	if [[ $cleaned -eq 0 ]]; then
 		print_status "No extra package manager caches found" ok
+	fi
+}
+
+clean_old_kernels() {
+	if is_skipped "kernels"; then
+		print_status "Old kernels" skip
+		return
+	fi
+
+	print_header "Cleaning old kernels"
+	log "Starting old kernel cleanup"
+
+	if command_exists dpkg-query && command_exists apt-get; then
+		local current_kernel current_kernel_stem package suffix packages=()
+		current_kernel=$(uname -r)
+		current_kernel_stem="${current_kernel%-generic}"
+
+		while IFS= read -r package; do
+			[[ -z "$package" ]] && continue
+
+			case "$package" in
+			linux-image-unsigned-*)
+				suffix="${package#linux-image-unsigned-}"
+				;;
+			linux-image-*|linux-headers-*)
+				suffix="${package#linux-image-}"
+				[[ "$suffix" == "$package" ]] && suffix="${package#linux-headers-}"
+				;;
+			*) continue ;;
+			esac
+
+			case "$suffix" in
+			generic|generic-*|lowlatency|lowlatency-*|rt-*|aws|aws-*|azure|azure-*|gcp|gcp-*|oracle|oracle-*)
+				continue
+				;;
+			esac
+
+			if [[ "$suffix" != "$current_kernel" && "$suffix" != "$current_kernel_stem" ]]; then
+				packages+=("$package")
+			fi
+		done < <(dpkg-query -W -f='${binary:Package}\n' 'linux-image-*' 'linux-headers-*' 2>/dev/null || true)
+
+		if ((${#packages[@]} > 0)); then
+			if $DRY_RUN; then
+				print_status "Old kernel packages would be removed: ${packages[*]}" dry
+				sudo apt-get --dry-run purge -y "${packages[@]}" 2>/dev/null || true
+			else
+				sudo apt-get purge -y "${packages[@]}" 2>/dev/null || true
+				print_status "Removed ${#packages[@]} old kernel packages" ok
+				log "Removed ${#packages[@]} old kernel packages"
+			fi
+		else
+			print_status "No old kernel packages found" ok
+		fi
+	elif command_exists dnf && command_exists rpm; then
+		local old_kernels
+		old_kernels=$(dnf repoquery --installonly --latest-limit=2 -q 2>/dev/null || true)
+
+		if [[ -n "$old_kernels" ]]; then
+			if $DRY_RUN; then
+				print_status "Old kernel packages would be removed: $(echo "$old_kernels" | tr '\n' ' ')" dry
+			else
+				sudo dnf remove -y $old_kernels 2>/dev/null || true
+				print_status "Removed old kernel packages" ok
+				log "Removed old kernel packages"
+			fi
+		else
+			print_status "No old kernel packages found" ok
+		fi
+	elif command_exists zypper; then
+		if $DRY_RUN; then
+			print_status "zypper remove-old-kernels would be run" dry
+		else
+			sudo zypper remove-old-kernels 2>/dev/null || true
+			print_status "Removed old kernels" ok
+			log "Removed old kernels"
+		fi
+	else
+		print_status "Old kernel cleanup not supported on this package manager" warn
 	fi
 }
 
@@ -1164,13 +1271,17 @@ main() {
 	# Run all cleanup functions
 	clean_temp_directories
 	clean_dangling_symlinks
+	clean_systemd_tmpfiles
 	clean_trash_folders
 	clean_journal_logs
 	clean_flatpak_cache
 	clean_docker
+	clean_docker_builder_cache
 	clean_pacman_cache
 	clean_pamac_cache
 	clean_apt_cache
+	clean_package_manager_caches
+	clean_old_kernels
 	clean_python_cache
 	clean_npm_cache
 	clean_yarn_cache
