@@ -1324,7 +1324,7 @@ clean_bun_cache() {
 	print_header "Cleaning Bun cache"
 	log "Starting Bun cache cleanup"
 
-	local bun_cache="/home/${REAL_USER}/.bun/install/cache"
+	local bun_cache="${HOME_DIR}/.bun/install/cache"
 
 	if [[ -d "$bun_cache" ]]; then
 		if $DRY_RUN; then
