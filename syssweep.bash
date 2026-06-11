@@ -1067,11 +1067,16 @@ clean_build_tool_caches() {
 	log "Starting build tool cache cleanup"
 
 	local -A build_caches=(
-		["Gradle"]="${HOME_DIR}/.gradle/caches"
-		["Gradle wrapper"]="${HOME_DIR}/.gradle/wrapper/dists"
-		["Maven"]="${HOME_DIR}/.m2/repository"
-		["Ccache"]="${HOME_DIR}/.cache/ccache"
-		["CMake"]="${HOME_DIR}/.cache/CMakeCache"
+		["User Gradle"]="${HOME_DIR}/.gradle/caches"
+		["User Gradle wrapper"]="${HOME_DIR}/.gradle/wrapper/dists"
+		["User Maven"]="${HOME_DIR}/.m2/repository"
+		["User Ccache"]="${HOME_DIR}/.cache/ccache"
+		["User CMake"]="${HOME_DIR}/.cache/CMakeCache"
+		["Root Gradle"]="/root/.gradle/caches"
+		["Root Gradle wrapper"]="/root/.gradle/wrapper/dists"
+		["Root Maven"]="/root/.m2/repository"
+		["Root Ccache"]="/root/.cache/ccache"
+		["Root CMake"]="/root/.cache/CMakeCache"
 	)
 
 	for tool in "${!build_caches[@]}"; do
@@ -1087,11 +1092,12 @@ clean_build_tool_caches() {
 		fi
 	done
 
-	# Also run ccache -C if available
 	if command_exists ccache; then
 		if ! $DRY_RUN; then
+			sudo -u "$REAL_USER" ccache -C 2>/dev/null || true
+			print_status "Reset ccache statistics (user)" ok
 			ccache -C 2>/dev/null || true
-			print_status "Reset ccache statistics" ok
+			print_status "Reset ccache statistics (root)" ok
 		fi
 	fi
 }
@@ -1317,13 +1323,17 @@ clean_pnpm_cache() {
 	log "Starting pnpm cache cleanup"
 
 	if $DRY_RUN; then
-		local store
-		store=$(sudo -u "$REAL_USER" pnpm store path 2>/dev/null || echo "${HOME_DIR}/.local/share/pnpm/store")
-		print_status "pnpm store (~$(size_of "$store")) would be pruned" dry
+		local user_store root_store
+		user_store=$(sudo -u "$REAL_USER" pnpm store path 2>/dev/null || echo "${HOME_DIR}/.local/share/pnpm/store")
+		root_store=$(pnpm store path 2>/dev/null || echo "/root/.local/share/pnpm/store")
+		print_status "User pnpm store (~$(size_of "$user_store")) would be pruned" dry
+		print_status "Root pnpm store (~$(size_of "$root_store")) would be pruned" dry
 	else
 		sudo -u "$REAL_USER" pnpm store prune 2>/dev/null || true
-		print_status "Pruned pnpm store (unreferenced packages removed)" ok
-		log "pnpm store pruned"
+		print_status "Pruned pnpm store (user)" ok
+		pnpm store prune 2>/dev/null || true
+		print_status "Pruned pnpm store (root)" ok
+		log "pnpm store pruned (user + root)"
 	fi
 }
 
@@ -1341,9 +1351,13 @@ clean_bun_cache() {
 	print_header "Cleaning Bun cache"
 	log "Starting Bun cache cleanup"
 
-	local bun_cache="${HOME_DIR}/.bun/install/cache"
+	local user_bun_cache="${HOME_DIR}/.bun/install/cache"
+	local root_bun_cache="/root/.bun/install/cache"
+	local found=0
 
-	if [[ -d "$bun_cache" ]]; then
+	for bun_cache in "$user_bun_cache" "$root_bun_cache"; do
+		[[ -d "$bun_cache" ]] || continue
+		found=$((found + 1))
 		if $DRY_RUN; then
 			print_status "Bun install cache (~$(size_of "$bun_cache")) would be cleared" dry
 		else
@@ -1351,11 +1365,11 @@ clean_bun_cache() {
 			s=$(size_of "$bun_cache")
 			sudo rm -rf "${bun_cache:?}"/* 2>/dev/null || true
 			print_status "Cleared Bun install cache (~${s})" ok
-			log "Cleared Bun install cache"
+			log "Cleared Bun install cache: ${bun_cache}"
 		fi
-	else
-		print_status "No Bun cache found" ok
-	fi
+	done
+
+	[[ $found -eq 0 ]] && print_status "No Bun cache found" ok
 }
 
 clean_deno_cache() {
@@ -1372,29 +1386,34 @@ clean_deno_cache() {
 	print_header "Cleaning Deno cache"
 	log "Starting Deno cache cleanup"
 
-	# Deno defaults to ~/.cache/deno; DENO_DIR overrides it
-	local deno_dir="${HOME_DIR}/.cache/deno"
+	local user_deno_dir="${HOME_DIR}/.cache/deno"
 	local env_deno_dir
 	env_deno_dir=$(sudo -u "$REAL_USER" printenv DENO_DIR 2>/dev/null || true)
-	[[ -n "$env_deno_dir" ]] && deno_dir="$env_deno_dir"
+	[[ -n "$env_deno_dir" ]] && user_deno_dir="$env_deno_dir"
 
-	if [[ -d "$deno_dir" ]]; then
+	local root_deno_dir="/root/.cache/deno"
+	local env_root_deno_dir
+	env_root_deno_dir=$(printenv DENO_DIR 2>/dev/null || true)
+	[[ -n "$env_root_deno_dir" ]] && root_deno_dir="$env_root_deno_dir"
+
+	local found=0
+	for deno_dir in "$user_deno_dir" "$root_deno_dir"; do
+		[[ -d "$deno_dir" ]] || continue
+		found=$((found + 1))
 		if $DRY_RUN; then
 			print_status "Deno cache (~$(size_of "$deno_dir")) would be cleaned" dry
 		else
 			local s
 			s=$(size_of "$deno_dir")
-			# Safe to remove: deps (downloaded modules), gen (compiled output), npm
-			# Do NOT remove: location_data (origin storage / localStorage)
 			for subdir in deps gen npm registries; do
 				[[ -d "${deno_dir}/${subdir}" ]] && sudo rm -rf "${deno_dir:?}/${subdir}" 2>/dev/null || true
 			done
 			print_status "Cleared Deno cache (~${s})" ok
-			log "Cleared Deno cache"
+			log "Cleared Deno cache: ${deno_dir}"
 		fi
-	else
-		print_status "No Deno cache found" ok
-	fi
+	done
+
+	[[ $found -eq 0 ]] && print_status "No Deno cache found" ok
 }
 
 clean_ruby_cache() {
@@ -1411,40 +1430,46 @@ clean_ruby_cache() {
 	print_header "Cleaning Ruby gem cache"
 	log "Starting Ruby gem cleanup"
 
+	local user_gem_dir root_gem_dir user_gem_cache root_gem_cache
+	user_gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "${HOME_DIR}/.gem")
+	root_gem_dir=$(gem environment gemdir 2>/dev/null || echo "/root/.gem")
+	user_gem_cache="${user_gem_dir}/cache"
+	root_gem_cache="${root_gem_dir}/cache"
+
 	if $DRY_RUN; then
-		local gem_dir
-		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "${HOME_DIR}/.gem")
-		local gem_cache="${gem_dir}/cache"
-		if [[ -d "$gem_cache" ]]; then
-			local count
-			count=$(find "$gem_cache" -name '*.gem' 2>/dev/null | wc -l)
-			print_status "${count} cached .gem files (~$(size_of "$gem_cache")) would be removed" dry
+		local user_count root_count
+		if [[ -d "$user_gem_cache" ]]; then
+			user_count=$(find "$user_gem_cache" -name '*.gem' 2>/dev/null | wc -l)
+			print_status "User cached .gem files: ${user_count} (~$(size_of "$user_gem_cache")) would be removed" dry
+		fi
+		if [[ -d "$root_gem_cache" ]]; then
+			root_count=$(find "$root_gem_cache" -name '*.gem' 2>/dev/null | wc -l)
+			print_status "Root cached .gem files: ${root_count} (~$(size_of "$root_gem_cache")) would be removed" dry
 		fi
 		print_status "Old gem versions would be removed via gem cleanup" dry
 	else
-		# Remove old gem versions (keeps only the latest)
 		sudo -u "$REAL_USER" gem cleanup 2>/dev/null || true
-		print_status "Removed old gem versions" ok
-		log "Removed old gem versions"
+		print_status "Removed old gem versions (user)" ok
+		gem cleanup 2>/dev/null || true
+		print_status "Removed old gem versions (root)" ok
+		log "Removed old gem versions (user + root)"
 
-		# Clear the gem download cache (.gem archives)
-		local gem_dir
-		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "${HOME_DIR}/.gem")
-		local gem_cache="${gem_dir}/cache"
-		if [[ -d "$gem_cache" ]]; then
-			local s
-			s=$(size_of "$gem_cache")
-			sudo rm -rf "${gem_cache:?}"/* 2>/dev/null || true
-			print_status "Cleared gem download cache (~${s})" ok
-			log "Cleared gem download cache"
-		fi
+		for gem_cache in "$user_gem_cache" "$root_gem_cache"; do
+			if [[ -d "$gem_cache" ]]; then
+				local s
+				s=$(size_of "$gem_cache")
+				sudo rm -rf "${gem_cache:?}"/* 2>/dev/null || true
+				print_status "Cleared gem download cache (~${s})" ok
+				log "Cleared gem download cache: ${gem_cache}"
+			fi
+		done
 
-		# Bundler cached .gem files
-		local bundler_cache="${HOME_DIR}/.bundle"
-		if [[ -d "$bundler_cache" ]]; then
-			find "$bundler_cache" -name '*.gem' -delete 2>/dev/null || true
-			print_status "Cleared Bundler .gem files" ok
-		fi
+		for bundler_cache in "${HOME_DIR}/.bundle" "/root/.bundle"; do
+			if [[ -d "$bundler_cache" ]]; then
+				find "$bundler_cache" -name '*.gem' -delete 2>/dev/null || true
+				print_status "Cleared Bundler .gem files: ${bundler_cache}" ok
+			fi
+		done
 	fi
 }
 
@@ -1463,14 +1488,19 @@ clean_composer_cache() {
 	log "Starting Composer cache cleanup"
 
 	if $DRY_RUN; then
-		local composer_cache
-		composer_cache=$(sudo -u "$REAL_USER" composer config --global cache-dir 2>/dev/null \
+		local user_composer_cache root_composer_cache
+		user_composer_cache=$(sudo -u "$REAL_USER" composer config --global cache-dir 2>/dev/null \
 			|| echo "${HOME_DIR}/.composer/cache")
-		print_status "Composer cache (~$(size_of "$composer_cache")) would be cleared" dry
+		root_composer_cache=$(composer config --global cache-dir 2>/dev/null \
+			|| echo "/root/.composer/cache")
+		print_status "User Composer cache (~$(size_of "$user_composer_cache")) would be cleared" dry
+		print_status "Root Composer cache (~$(size_of "$root_composer_cache")) would be cleared" dry
 	else
 		sudo -u "$REAL_USER" composer clear-cache 2>/dev/null || true
-		print_status "Cleared Composer cache" ok
-		log "Composer cache cleared"
+		print_status "Cleared Composer cache (user)" ok
+		composer clear-cache 2>/dev/null || true
+		print_status "Cleared Composer cache (root)" ok
+		log "Composer cache cleared (user + root)"
 	fi
 }
 
@@ -1489,16 +1519,20 @@ clean_poetry_cache() {
 	log "Starting Poetry cache cleanup"
 
 	if $DRY_RUN; then
-		local poetry_cache
-		poetry_cache=$(sudo -u "$REAL_USER" poetry config cache-dir 2>/dev/null \
+		local user_poetry_cache root_poetry_cache
+		user_poetry_cache=$(sudo -u "$REAL_USER" poetry config cache-dir 2>/dev/null \
 			|| echo "${HOME_DIR}/.cache/pypoetry")
-		print_status "Poetry cache (~$(size_of "$poetry_cache")) would be cleared" dry
+		root_poetry_cache=$(poetry config cache-dir 2>/dev/null \
+			|| echo "/root/.cache/pypoetry")
+		print_status "User Poetry cache (~$(size_of "$user_poetry_cache")) would be cleared" dry
+		print_status "Root Poetry cache (~$(size_of "$root_poetry_cache")) would be cleared" dry
 	else
-		# Clear both case variants of the source name
 		sudo -u "$REAL_USER" poetry cache clear --all pypi -n 2>/dev/null || true
 		sudo -u "$REAL_USER" poetry cache clear --all PyPI -n 2>/dev/null || true
-		print_status "Cleared Poetry PyPI download cache" ok
-		log "Poetry cache cleared"
+		poetry cache clear --all pypi -n 2>/dev/null || true
+		poetry cache clear --all PyPI -n 2>/dev/null || true
+		print_status "Cleared Poetry PyPI download cache (user + root)" ok
+		log "Poetry cache cleared (user + root)"
 	fi
 }
 
@@ -1567,11 +1601,14 @@ clean_conda_cache() {
 	log "Starting ${conda_cmd} cache cleanup"
 
 	if $DRY_RUN; then
-		print_status "${conda_cmd} clean --all would remove tarballs, index cache, and unused packages" dry
+		print_status "User ${conda_cmd} clean --all would remove tarballs, index cache, and unused packages" dry
+		print_status "Root ${conda_cmd} clean --all would remove tarballs, index cache, and unused packages" dry
 	else
 		sudo -u "$REAL_USER" "$conda_cmd" clean --all -y 2>/dev/null || true
-		print_status "Cleaned ${conda_cmd} tarballs, packages, and index cache" ok
-		log "${conda_cmd} cache cleaned"
+		print_status "Cleaned ${conda_cmd} tarballs, packages, and index cache (user)" ok
+		"$conda_cmd" clean --all -y 2>/dev/null || true
+		print_status "Cleaned ${conda_cmd} tarballs, packages, and index cache (root)" ok
+		log "${conda_cmd} cache cleaned (user + root)"
 	fi
 }
 
