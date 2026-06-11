@@ -34,8 +34,9 @@ Usage: sudo ./syssweep.bash [OPTIONS]
 Options:
   --dry-run          Show what would be deleted without deleting
   --skip <function>  Skip a cleanup function (repeatable)
-                     Available: temp, trash, dangling, journal, flatpak, docker,
-                     pacman, pamac, apt, python, npm, yarn, cargo,
+                     Available: temp, trash, dangling, tmpfiles, journal,
+                     flatpak, docker, dockerbuilder, pacman, pamac, apt,
+                     pkgcache, kernels, python, npm, yarn, cargo,
                      go, snap, mesa, fontconfig, coredumps, electron,
                      buildtools, oldlogs, swaps, tex, locate
   --help             Show this help message
@@ -248,6 +249,29 @@ clean_dangling_symlinks() {
 		fi
 	else
 		print_status "No dangling symlinks found in $(pwd)" ok
+	fi
+}
+
+clean_systemd_tmpfiles() {
+	if is_skipped "tmpfiles"; then
+		print_status "systemd tmpfiles" skip
+		return
+	fi
+
+	if ! command_exists systemd-tmpfiles; then
+		print_status "systemd-tmpfiles not found" warn
+		return
+	fi
+
+	print_header "Cleaning systemd tmpfiles"
+	log "Starting systemd tmpfiles cleanup"
+
+	if $DRY_RUN; then
+		print_status "systemd-tmpfiles --clean would be run" dry
+	else
+		systemd-tmpfiles --clean 2>/dev/null || true
+		print_status "Cleaned systemd tmpfiles" ok
+		log "Cleaned systemd tmpfiles"
 	fi
 }
 
@@ -486,6 +510,66 @@ clean_apt_cache() {
 		fi
 
 		log "APT cache cleanup completed"
+	fi
+}
+
+clean_package_manager_caches() {
+	if is_skipped "pkgcache"; then
+		print_status "Package manager caches" skip
+		return
+	fi
+
+	print_header "Cleaning package manager caches"
+	log "Starting package manager cache cleanup"
+
+	local cleaned=0
+
+	if command_exists dnf; then
+		if $DRY_RUN; then
+			print_status "dnf clean all would be run" dry
+		else
+			sudo dnf clean all 2>/dev/null || true
+			print_status "Cleaned DNF cache" ok
+			log "Cleaned DNF cache"
+		fi
+		cleaned=$((cleaned + 1))
+	fi
+
+	if command_exists zypper; then
+		if $DRY_RUN; then
+			print_status "zypper clean --all would be run" dry
+		else
+			sudo zypper clean --all 2>/dev/null || true
+			print_status "Cleaned Zypper cache" ok
+			log "Cleaned Zypper cache"
+		fi
+		cleaned=$((cleaned + 1))
+	fi
+
+	if command_exists apk; then
+		if $DRY_RUN; then
+			print_status "apk cache clean would be run" dry
+		else
+			sudo apk cache clean 2>/dev/null || true
+			print_status "Cleaned Alpine package cache" ok
+			log "Cleaned Alpine package cache"
+		fi
+		cleaned=$((cleaned + 1))
+	fi
+
+	if command_exists brew; then
+		if $DRY_RUN; then
+			print_status "brew cleanup would be run" dry
+		else
+			brew cleanup 2>/dev/null || true
+			print_status "Cleaned Homebrew cache" ok
+			log "Cleaned Homebrew cache"
+		fi
+		cleaned=$((cleaned + 1))
+	fi
+
+	if [[ $cleaned -eq 0 ]]; then
+		print_status "No extra package manager caches found" ok
 	fi
 }
 
