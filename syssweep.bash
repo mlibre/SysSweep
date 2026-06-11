@@ -1706,6 +1706,24 @@ clean_apport_reports() {
 	fi
 }
 
+clean_locate_database() {
+	if is_skipped "locate"; then
+		print_status "Locate database update" skip
+		return
+	fi
+
+	if ! command_exists updatedb; then
+		print_status "updatedb not found" warn
+		return
+	fi
+
+	if ! $DRY_RUN; then
+		print_header "Updating locate database"
+		sudo updatedb 2>/dev/null || true
+		print_status "Locate database updated" ok
+	fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
@@ -1784,22 +1802,13 @@ main() {
 	clean_wine_shader_cache
 	clean_git_repos
 	clean_apport_reports
+	clean_locate_database
 
 	# Show disk usage after
 	echo ""
 	echo -e "\e[1;34mDisk usage after cleanup:\e[0m"
 	df -h / | tail -1 | awk '{printf "  Used: %s / %s (%s)\n", $3, $2, $5}'
 	echo ""
-
-	# Update locate database
-	if command_exists updatedb; then
-		if ! $DRY_RUN; then
-			print_header "Updating locate database"
-			sudo updatedb 2>/dev/null || true
-			print_status "Locate database updated" ok
-		fi
-	fi
-
 	echo ""
 	echo -e "\e[1;32m══════════════════════════════════════════════════════\e[0m"
 	echo -e "\e[1;32m  Cleanup complete! Log saved to: ${LOG_FILE}\e[0m"
