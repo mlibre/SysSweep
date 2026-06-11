@@ -8,13 +8,12 @@ set -uo pipefail
 # ============================================================================
 
 VERSION="2.1.0"
-LOG_DIR="${HOME}/.local/share"
-LOG_FILE="${LOG_DIR}/syssweep.log"
 REAL_USER="${SUDO_USER:-$USER}"
 HOME_DIR=$(eval echo "~$REAL_USER")
+LOG_DIR="${HOME_DIR}/.local/share"
+LOG_FILE="${LOG_DIR}/syssweep.log"
 DRY_RUN=false
 SKIPPED=()
-TOTAL_FREED=0
 
 
 # ===== Output helpers =====
@@ -187,8 +186,8 @@ clean_temp_directories() {
 
 		# Clean user trash
 		for trash_dir in \
-			"/home/${REAL_USER}/.local/share/Trash/files" \
-			"/home/${REAL_USER}/.local/share/Trash/info" \
+			"${HOME_DIR}/.local/share/Trash/files" \
+			"${HOME_DIR}/.local/share/Trash/info" \
 			"/root/.local/share/Trash/files" \
 			"/root/.local/share/Trash/info"; do
 			if [[ -d "$trash_dir" ]]; then
@@ -202,7 +201,7 @@ clean_temp_directories() {
 		done
 
 		# Clean npm cache
-		for npm_dir in "/home/${REAL_USER}/.npm" "/root/.npm"; do
+		for npm_dir in "${HOME_DIR}/.npm" "/root/.npm"; do
 			if [[ -d "$npm_dir" ]]; then
 				local npm_size
 				npm_size=$(size_of "$npm_dir")
@@ -213,20 +212,20 @@ clean_temp_directories() {
 		done
 
 		# Clean KDE thumbnail caches
-		for cache_dir in "/home/${REAL_USER}/.cache/ksycoca5*" "/root/.cache/ksycoca5*"; do
+		for cache_dir in "${HOME_DIR}/.cache/ksycoca5*" "/root/.cache/ksycoca5*"; do
 			# Use find to handle glob safely
 			while IFS= read -r -d '' dir; do
 				sudo rm -rf "${dir}" 2>/dev/null || true
 				print_status "Removed ${dir}" ok
 				log "Removed ${dir}"
-			done < <(find /home/${REAL_USER}/.cache /root/.cache -maxdepth 1 -name 'ksycoca5*' -print0 2>/dev/null)
+			done < <(find "${HOME_DIR}"/.cache /root/.cache -maxdepth 1 -name 'ksycoca5*' -print0 2>/dev/null)
 		done
 
 		# Clean thumbnail cache
 		local thumb_size
-		thumb_size=$(size_of "/home/${REAL_USER}/.cache/thumbnails")
+		thumb_size=$(size_of "${HOME_DIR}/.cache/thumbnails")
 		if [[ -n "$thumb_size" && "$thumb_size" != "0" ]]; then
-			sudo rm -rf "/home/${REAL_USER}/.cache/thumbnails/"* 2>/dev/null || true
+			sudo rm -rf "${HOME_DIR}/.cache/thumbnails/"* 2>/dev/null || true
 			print_status "Cleared thumbnail cache (~${thumb_size})" ok
 			log "Cleared thumbnail cache"
 		fi
@@ -699,7 +698,7 @@ clean_python_cache() {
 		# Check pip cache
 		if command_exists pip; then
 			local user_pip root_pip
-			user_pip=$(sudo -u "$REAL_USER" pip cache dir 2>/dev/null || echo "/home/${REAL_USER}/.cache/pip")
+			user_pip=$(sudo -u "$REAL_USER" pip cache dir 2>/dev/null || echo "${HOME_DIR}/.cache/pip")
 			root_pip=$(pip cache dir 2>/dev/null || echo "/root/.cache/pip")
 			print_status "User pip cache (~$(size_of "$user_pip")) would be purged" dry
 			print_status "Root pip cache (~$(size_of "$root_pip")) would be purged" dry
@@ -707,7 +706,7 @@ clean_python_cache() {
 
 		# Check __pycache__ dirs
 		local pycache_count
-		pycache_count=$(find /home/${REAL_USER} -name '__pycache__' -type d 2>/dev/null | wc -l)
+		pycache_count=$(find "${HOME_DIR}" -name '__pycache__' -type d 2>/dev/null | wc -l)
 		if [[ $pycache_count -gt 0 ]]; then
 			print_status "${pycache_count} __pycache__ directories would be removed" dry
 		fi
@@ -722,9 +721,9 @@ clean_python_cache() {
 
 		# Remove __pycache__ dirs in user space
 		local pycache_count
-		pycache_count=$(find /home/${REAL_USER} -name '__pycache__' -type d 2>/dev/null | wc -l)
+		pycache_count=$(find "${HOME_DIR}" -name '__pycache__' -type d 2>/dev/null | wc -l)
 		if [[ $pycache_count -gt 0 ]]; then
-			find /home/${REAL_USER} -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+			find "${HOME_DIR}" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 			print_status "Removed ${pycache_count} __pycache__ directories" ok
 			log "Removed ${pycache_count} __pycache__ directories"
 		fi
@@ -748,7 +747,7 @@ clean_npm_cache() {
 	# Clean npm cache for real user
 	if $DRY_RUN; then
 		local user_cache root_cache
-		user_cache=$(sudo -u "$REAL_USER" npm config get cache 2>/dev/null || echo "/home/${REAL_USER}/.npm")
+		user_cache=$(sudo -u "$REAL_USER" npm config get cache 2>/dev/null || echo "${HOME_DIR}/.npm")
 		root_cache=$(npm config get cache 2>/dev/null || echo "/root/.npm")
 		print_status "User npm cache (~$(size_of "$user_cache")) would be cleaned" dry
 		print_status "Root npm cache (~$(size_of "$root_cache")) would be cleaned" dry
@@ -777,7 +776,7 @@ clean_yarn_cache() {
 
 	if $DRY_RUN; then
 		local user_yarn root_yarn
-		user_yarn=$(sudo -u "$REAL_USER" yarn cache dir 2>/dev/null || echo "/home/${REAL_USER}/.cache/yarn")
+		user_yarn=$(sudo -u "$REAL_USER" yarn cache dir 2>/dev/null || echo "${HOME_DIR}/.cache/yarn")
 		root_yarn=$(yarn cache dir 2>/dev/null || echo "/root/.cache/yarn")
 		if [[ -d "$user_yarn" ]]; then
 			print_status "User yarn cache (~$(size_of "$user_yarn")) would be cleaned" dry
@@ -808,7 +807,7 @@ clean_cargo_cache() {
 	print_header "Cleaning Cargo cache"
 	log "Starting Cargo cache cleanup"
 
-	local user_cargo="/home/${REAL_USER}/.cargo"
+	local user_cargo="${HOME_DIR}/.cargo"
 	local root_cargo="/root/.cargo"
 
 	if $DRY_RUN; then
@@ -848,7 +847,7 @@ clean_go_cache() {
 	log "Starting Go cache cleanup"
 
 	if $DRY_RUN; then
-		local user_go="/home/${REAL_USER}/.cache/go-build"
+		local user_go="${HOME_DIR}/.cache/go-build"
 		local root_go="/root/.cache/go-build"
 		if [[ -d "$user_go" ]]; then
 			print_status "User Go build cache (~$(size_of "$user_go")) would be cleaned" dry
@@ -887,7 +886,7 @@ clean_snap_cache() {
 		# Clean snap thumbnails
 		sudo rm -rf /var/snapd/cache/*.snap 2>/dev/null || true
 		# Clean snap thumbnails user cache
-		sudo rm -rf "/home/${REAL_USER}/snap/"*/common/.cache/thumbnails/* 2>/dev/null || true
+		sudo rm -rf "${HOME_DIR}/snap/"*/common/.cache/thumbnails/* 2>/dev/null || true
 		# Clean old snap revisions (keep current)
 		local current_snap
 		current_snap=$(snap list 2>/dev/null | awk 'NR>1{print $1, $3}' || true)
@@ -906,7 +905,7 @@ clean_mesa_shader_cache() {
 	log "Starting Mesa shader cache cleanup"
 
 	local mesa_dirs=(
-		"/home/${REAL_USER}/.cache/mesa_shader_cache"
+		"${HOME_DIR}/.cache/mesa_shader_cache"
 		"/root/.cache/mesa_shader_cache"
 	)
 
@@ -935,7 +934,7 @@ clean_fontconfig_cache() {
 	log "Starting fontconfig cache cleanup"
 
 	local fontconfig_dirs=(
-		"/home/${REAL_USER}/.cache/fontconfig"
+		"${HOME_DIR}/.cache/fontconfig"
 		"/root/.cache/fontconfig"
 	)
 
@@ -1249,7 +1248,7 @@ clean_browser_caches() {
 	print_header "Cleaning browser caches"
 	log "Starting browser cache cleanup"
 
-	local user_home="/home/${REAL_USER}"
+	local user_home="${HOME_DIR}"
 	local found=0
 
 	# Chromium-based browsers — clear cache subdirs only, preserve profile data
@@ -1302,7 +1301,7 @@ clean_pnpm_cache() {
 
 	if $DRY_RUN; then
 		local store
-		store=$(sudo -u "$REAL_USER" pnpm store path 2>/dev/null || echo "/home/${REAL_USER}/.local/share/pnpm/store")
+		store=$(sudo -u "$REAL_USER" pnpm store path 2>/dev/null || echo "${HOME_DIR}/.local/share/pnpm/store")
 		print_status "pnpm store (~$(size_of "$store")) would be pruned" dry
 	else
 		sudo -u "$REAL_USER" pnpm store prune 2>/dev/null || true
@@ -1357,7 +1356,7 @@ clean_deno_cache() {
 	log "Starting Deno cache cleanup"
 
 	# Deno defaults to ~/.cache/deno; DENO_DIR overrides it
-	local deno_dir="/home/${REAL_USER}/.cache/deno"
+	local deno_dir="${HOME_DIR}/.cache/deno"
 	local env_deno_dir
 	env_deno_dir=$(sudo -u "$REAL_USER" printenv DENO_DIR 2>/dev/null || true)
 	[[ -n "$env_deno_dir" ]] && deno_dir="$env_deno_dir"
@@ -1424,7 +1423,7 @@ clean_ruby_cache() {
 		fi
 
 		# Bundler cached .gem files
-		local bundler_cache="/home/${REAL_USER}/.bundle"
+		local bundler_cache="${HOME_DIR}/.bundle"
 		if [[ -d "$bundler_cache" ]]; then
 			find "$bundler_cache" -name '*.gem' -delete 2>/dev/null || true
 			print_status "Cleared Bundler .gem files" ok
@@ -1516,7 +1515,7 @@ clean_pipenv_cache() {
 	done
 
 	# Inform about pipenv virtualenvs (don't auto-delete — user may need them)
-	local pipenv_venv_dir="/home/${REAL_USER}/.local/share/virtualenvs"
+	local pipenv_venv_dir="${HOME_DIR}/.local/share/virtualenvs"
 	if [[ -d "$pipenv_venv_dir" ]]; then
 		local count
 		count=$(find "$pipenv_venv_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
@@ -1568,7 +1567,7 @@ clean_wine_shader_cache() {
 	print_header "Cleaning Wine/Steam shader caches"
 	log "Starting Wine/Steam shader cache cleanup"
 
-	local user_home="/home/${REAL_USER}"
+	local user_home="${HOME_DIR}"
 	local found=0
 
 	# Wine shader cache
@@ -1634,7 +1633,7 @@ clean_git_repos() {
 	print_header "Running Git garbage collection"
 	log "Starting Git GC pass"
 
-	local user_home="/home/${REAL_USER}"
+	local user_home="${HOME_DIR}"
 	local -a repos=()
 
 	# Discover git repos in user home; exclude dirs that contain huge non-project content
