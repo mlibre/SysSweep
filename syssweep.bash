@@ -2,19 +2,17 @@
 
 set -uo pipefail
 
-
 # ============================================================================
 # SysSweep — Safe Linux system cleanup script
 # ============================================================================
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 REAL_USER="${SUDO_USER:-$USER}"
 HOME_DIR=$(eval echo "~$REAL_USER")
 LOG_DIR="${HOME_DIR}/.local/share"
 LOG_FILE="${LOG_DIR}/syssweep.log"
 DRY_RUN=false
 SKIPPED=()
-
 
 # ===== Output helpers =====
 
@@ -51,7 +49,8 @@ Options:
                                 go, snap, mesa, fontconfig, coredumps, electron,
                                 buildtools, oldlogs, swaps, tex, locate,
                                 browser, pnpm, bun, deno, ruby, composer,
-                                poetry, pipenv, conda, wine, gitgc, apport
+                                poetry, pipenv, conda, wine, gitgc, apport,
+                                firefox, debpartial, sysdcache
   --help             Show this help message
   --version          Show version
 
@@ -123,6 +122,8 @@ print_status() {
         warn) echo "  ⚠ $1" ;;
         err)  echo "  ✗ $1" ;;
         info) echo "  • $1" ;;
+        skip) echo "  ⏭ $1 (skipped)" ;;
+        dry)  echo "  🔍 $1 (would delete)" ;;
     esac
 }
 
@@ -170,17 +171,13 @@ clean_temp_directories() {
 	print_header "Cleaning temporary directories"
 	log "Starting temp directory cleanup"
 
-	local count=0
-	local size=""
-
 	if $DRY_RUN; then
 		print_status "/tmp — would remove ~$(size_of /tmp)" dry
 		print_status "/var/tmp — would remove ~$(size_of /var/tmp)" dry
 	else
-		# Clean /tmp — only files older than 1 day to avoid breaking running processes
-		local tmp_before tmp_size
-		tmp_size=$(size_of /tmp)
-		tmp_before=$( (find /tmp -mindepth 1 -maxdepth 1 -mtime +1 2>/dev/null || true) | wc -l)
+		# Clean /tmp — only files older than 1 day
+		local tmp_size=$(size_of /tmp)
+		local tmp_before=$( (find /tmp -mindepth 1 -maxdepth 1 -mtime +1 2>/dev/null || true) | wc -l)
 		if [[ "$tmp_before" -gt 0 ]]; then
 			sudo find /tmp -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 			print_status "Removed old files from /tmp (~${tmp_size})" ok
@@ -190,9 +187,8 @@ clean_temp_directories() {
 		fi
 
 		# Clean /var/tmp
-		local vartmp_size vartmp_before
-		vartmp_size=$(size_of /var/tmp)
-		vartmp_before=$( (find /var/tmp -mindepth 1 -maxdepth 1 -mtime +1 2>/dev/null || true) | wc -l)
+		local vartmp_size=$(size_of /var/tmp)
+		local vartmp_before=$( (find /var/tmp -mindepth 1 -maxdepth 1 -mtime +1 2>/dev/null || true) | wc -l)
 		if [[ "$vartmp_before" -gt 0 ]]; then
 			sudo find /var/tmp -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 			print_status "Removed old files from /var/tmp (~${vartmp_size})" ok
@@ -201,14 +197,14 @@ clean_temp_directories() {
 			print_status "/var/tmp — nothing old enough to remove" ok
 		fi
 
-		# Clean user trash
+		# Clean user & root trash
 		for trash_dir in \
 			"${HOME_DIR}/.local/share/Trash/files" \
 			"${HOME_DIR}/.local/share/Trash/info" \
 			"/root/.local/share/Trash/files" \
 			"/root/.local/share/Trash/info"; do
 			if [[ -d "$trash_dir" ]]; then
-				count=$(find "$trash_dir" -mindepth 1 2>/dev/null | wc -l)
+				local count=$(find "$trash_dir" -mindepth 1 2>/dev/null | wc -l)
 				if [[ $count -gt 0 ]]; then
 					sudo rm -rf "${trash_dir:?}"/* 2>/dev/null || true
 					print_status "Cleared ${trash_dir}" ok
@@ -217,11 +213,10 @@ clean_temp_directories() {
 			fi
 		done
 
-		# Clean npm cache
+		# Clean npm cache directories (both user and root)
 		for npm_dir in "${HOME_DIR}/.npm" "/root/.npm"; do
 			if [[ -d "$npm_dir" ]]; then
-				local npm_size
-				npm_size=$(size_of "$npm_dir")
+				local npm_size=$(size_of "$npm_dir")
 				sudo rm -rf "${npm_dir:?}" 2>/dev/null || true
 				print_status "Removed ${npm_dir} (~${npm_size})" ok
 				log "Removed ${npm_dir}"
@@ -229,18 +224,14 @@ clean_temp_directories() {
 		done
 
 		# Clean KDE thumbnail caches
-		for cache_dir in "${HOME_DIR}/.cache/ksycoca5*" "/root/.cache/ksycoca5*"; do
-			# Use find to handle glob safely
-			while IFS= read -r -d '' dir; do
-				sudo rm -rf "${dir}" 2>/dev/null || true
-				print_status "Removed ${dir}" ok
-				log "Removed ${dir}"
-			done < <(find "${HOME_DIR}"/.cache /root/.cache -maxdepth 1 -name 'ksycoca5*' -print0 2>/dev/null)
-		done
+		while IFS= read -r -d '' dir; do
+			sudo rm -rf "${dir}" 2>/dev/null || true
+			print_status "Removed ${dir}" ok
+			log "Removed ${dir}"
+		done < <(find "${HOME_DIR}"/.cache /root/.cache -maxdepth 1 -name 'ksycoca5*' -print0 2>/dev/null)
 
-		# Clean thumbnail cache
-		local thumb_size
-		thumb_size=$(size_of "${HOME_DIR}/.cache/thumbnails")
+		# Clean thumbnail cache (user)
+		local thumb_size=$(size_of "${HOME_DIR}/.cache/thumbnails")
 		if [[ -n "$thumb_size" && "$thumb_size" != "0" ]]; then
 			sudo rm -rf "${HOME_DIR}/.cache/thumbnails/"* 2>/dev/null || true
 			print_status "Cleared thumbnail cache (~${thumb_size})" ok
@@ -249,6 +240,7 @@ clean_temp_directories() {
 	fi
 }
 
+# FIXED 1: safe dangling symlink cleanup
 clean_dangling_symlinks() {
 	if is_skipped "dangling"; then
 		print_status "Dangling symlinks" skip
@@ -258,19 +250,27 @@ clean_dangling_symlinks() {
 	print_header "Cleaning dangling symlinks"
 	log "Starting dangling symlink cleanup"
 
-	local count
-	count=$(find . -xtype l 2>/dev/null | wc -l)
+	local total=0
+	local search_paths=("${HOME_DIR}" "/root")
 
-	if [[ $count -gt 0 ]]; then
-		if $DRY_RUN; then
-			print_status "${count} dangling symlinks would be removed from $(pwd)" dry
-		else
-			find . -xtype l -delete 2>/dev/null || true
-			print_status "Removed ${count} dangling symlinks from $(pwd)" ok
-			log "Removed ${count} dangling symlinks from $(pwd)"
+	for spath in "${search_paths[@]}"; do
+		[[ -d "$spath" ]] || continue
+
+		local count=$(find "$spath" -maxdepth 6 -xtype l 2>/dev/null | wc -l)
+		if [[ $count -gt 0 ]]; then
+			if $DRY_RUN; then
+				print_status "${count} dangling symlinks would be removed from ${spath}" dry
+			else
+				find "$spath" -maxdepth 6 -xtype l -delete 2>/dev/null || true
+				print_status "Removed ${count} dangling symlinks from ${spath}" ok
+				log "Removed ${count} dangling symlinks from ${spath}"
+			fi
+			total=$((total + count))
 		fi
-	else
-		print_status "No dangling symlinks found in $(pwd)" ok
+	done
+
+	if [[ $total -eq 0 ]]; then
+		print_status "No dangling symlinks found in user directories" ok
 	fi
 }
 
@@ -310,7 +310,6 @@ clean_trash_folders() {
 	mounted_devices=$(df -h | awk 'NR > 1 {print $NF}')
 
 	while IFS= read -r mount_point; do
-		# Skip special filesystems
 		[[ "$mount_point" == /proc || "$mount_point" == /sys || "$mount_point" == /dev ]] && continue
 		[[ "$mount_point" == /run* ]] && continue
 
@@ -329,8 +328,7 @@ clean_trash_folders() {
 			else
 				for trash_dir in "${mount_point}"/.Trash-*; do
 					[[ -d "$trash_dir" ]] || continue
-					local s
-					s=$(size_of "$trash_dir")
+					local s=$(size_of "$trash_dir")
 					sudo rm -rf "${trash_dir:?}" 2>/dev/null || true
 					print_status "Removed ${trash_dir} (~${s})" ok
 					log "Removed ${trash_dir}"
@@ -361,10 +359,8 @@ clean_journal_logs() {
 	else
 		local before_size
 		before_size=$(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+[GMK]' || echo "0")
-
 		sudo journalctl --flush --vacuum-time=3d 2>/dev/null || true
 		journalctl --user --flush --vacuum-time=3d 2>/dev/null || true
-
 		local after_size
 		after_size=$(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+[GMK]' || echo "0")
 		print_status "Journal: ${before_size} → ${after_size}" ok
@@ -498,11 +494,6 @@ clean_pacman_cache() {
 		else
 			print_status "No orphaned packages found" ok
 		fi
-
-		# Clean package cache completely
-		sudo pacman -Scc --noconfirm 2>/dev/null || true
-		print_status "Cleaned full package cache" ok
-		log "Pacman cache cleanup completed"
 	fi
 }
 
@@ -712,20 +703,23 @@ clean_python_cache() {
 	log "Starting Python cache cleanup"
 
 	if $DRY_RUN; then
-		# Check pip cache
 		if command_exists pip; then
-			local user_pip root_pip
+			local user_pip
 			user_pip=$(sudo -u "$REAL_USER" pip cache dir 2>/dev/null || echo "${HOME_DIR}/.cache/pip")
+			local root_pip
 			root_pip=$(pip cache dir 2>/dev/null || echo "/root/.cache/pip")
 			print_status "User pip cache (~$(size_of "$user_pip")) would be purged" dry
 			print_status "Root pip cache (~$(size_of "$root_pip")) would be purged" dry
 		fi
 
-		# Check __pycache__ dirs
 		local pycache_count
 		pycache_count=$(find "${HOME_DIR}" -name '__pycache__' -type d 2>/dev/null | wc -l)
 		if [[ $pycache_count -gt 0 ]]; then
-			print_status "${pycache_count} __pycache__ directories would be removed" dry
+			print_status "${pycache_count} __pycache__ directories would be removed from ${HOME_DIR}" dry
+		fi
+		pycache_count=$(find /root -name '__pycache__' -type d 2>/dev/null | wc -l)
+		if [[ $pycache_count -gt 0 ]]; then
+			print_status "${pycache_count} __pycache__ directories would be removed from /root" dry
 		fi
 	else
 		if command_exists pip; then
@@ -736,13 +730,19 @@ clean_python_cache() {
 			log "Purged pip cache (user + root)"
 		fi
 
-		# Remove __pycache__ dirs in user space
+		# Remove __pycache__ dirs in user space and root space
 		local pycache_count
 		pycache_count=$(find "${HOME_DIR}" -name '__pycache__' -type d 2>/dev/null | wc -l)
 		if [[ $pycache_count -gt 0 ]]; then
 			find "${HOME_DIR}" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-			print_status "Removed ${pycache_count} __pycache__ directories" ok
-			log "Removed ${pycache_count} __pycache__ directories"
+			print_status "Removed ${pycache_count} __pycache__ directories from ${HOME_DIR}" ok
+			log "Removed ${pycache_count} __pycache__ dirs from ${HOME_DIR}"
+		fi
+		pycache_count=$(find /root -name '__pycache__' -type d 2>/dev/null | wc -l)
+		if [[ $pycache_count -gt 0 ]]; then
+			find /root -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+			print_status "Removed ${pycache_count} __pycache__ directories from /root" ok
+			log "Removed ${pycache_count} __pycache__ dirs from /root"
 		fi
 	fi
 }
@@ -761,10 +761,10 @@ clean_npm_cache() {
 	print_header "Cleaning npm cache"
 	log "Starting npm cache cleanup"
 
-	# Clean npm cache for real user
 	if $DRY_RUN; then
-		local user_cache root_cache
+		local user_cache
 		user_cache=$(sudo -u "$REAL_USER" npm config get cache 2>/dev/null || echo "${HOME_DIR}/.npm")
+		local root_cache
 		root_cache=$(npm config get cache 2>/dev/null || echo "/root/.npm")
 		print_status "User npm cache (~$(size_of "$user_cache")) would be cleaned" dry
 		print_status "Root npm cache (~$(size_of "$root_cache")) would be cleaned" dry
@@ -792,8 +792,9 @@ clean_yarn_cache() {
 	log "Starting yarn cache cleanup"
 
 	if $DRY_RUN; then
-		local user_yarn root_yarn
+		local user_yarn
 		user_yarn=$(sudo -u "$REAL_USER" yarn cache dir 2>/dev/null || echo "${HOME_DIR}/.cache/yarn")
+		local root_yarn
 		root_yarn=$(yarn cache dir 2>/dev/null || echo "/root/.cache/yarn")
 		if [[ -d "$user_yarn" ]]; then
 			print_status "User yarn cache (~$(size_of "$user_yarn")) would be cleaned" dry
@@ -835,12 +836,10 @@ clean_cargo_cache() {
 			print_status "Root Cargo registry (~$(size_of "${root_cargo}/registry")) would be cleaned" dry
 		fi
 	else
-		# Clean user cargo cache
 		if [[ -d "${user_cargo}/registry/cache" ]]; then
 			sudo rm -rf "${user_cargo}/registry/cache/"* 2>/dev/null || true
 			print_status "Cleaned Cargo cache (user)" ok
 		fi
-		# Clean root cargo cache
 		if [[ -d "${root_cargo}/registry/cache" ]]; then
 			sudo rm -rf "${root_cargo}/registry/cache/"* 2>/dev/null || true
 			print_status "Cleaned Cargo cache (root)" ok
@@ -873,10 +872,8 @@ clean_go_cache() {
 			print_status "Root Go build cache (~$(size_of "$root_go")) would be cleaned" dry
 		fi
 	else
-		# Clean user go cache
 		sudo -u "$REAL_USER" go clean -cache 2>/dev/null || true
 		print_status "Cleaned Go build cache (user)" ok
-		# Clean root go cache
 		go clean -cache 2>/dev/null || true
 		print_status "Cleaned Go build cache (root)" ok
 		log "Go cache cleaned (user + root)"
@@ -898,16 +895,18 @@ clean_snap_cache() {
 	log "Starting Snap cleanup"
 
 	if $DRY_RUN; then
-		print_status "Would remove snap Thumbnails and logs" dry
+		print_status "Would remove old snap revisions" dry
 	else
-		# Clean snap thumbnails
+		# Remove disabled (old) revisions safely
+		snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' | \
+			while read -r snapname revision; do
+				sudo snap remove "$snapname" --revision="$revision" 2>/dev/null || true
+			done
+		print_status "Removed old snap revisions" ok
+
+		# Clean snap thumbnail caches
 		sudo rm -rf /var/snapd/cache/*.snap 2>/dev/null || true
-		# Clean snap thumbnails user cache
 		sudo rm -rf "${HOME_DIR}/snap/"*/common/.cache/thumbnails/* 2>/dev/null || true
-		# Clean old snap revisions (keep current)
-		local current_snap
-		current_snap=$(snap list 2>/dev/null | awk 'NR>1{print $1, $3}' || true)
-		print_status "Cleaned snap cache" ok
 		log "Snap cache cleaned"
 	fi
 }
@@ -931,8 +930,7 @@ clean_mesa_shader_cache() {
 			if $DRY_RUN; then
 				print_status "${dir} (~$(size_of "$dir")) would be cleaned" dry
 			else
-				local s
-				s=$(size_of "$dir")
+				local s=$(size_of "$dir")
 				sudo rm -rf "${dir:?}"/* 2>/dev/null || true
 				print_status "Cleared ${dir} (~${s})" ok
 				log "Cleared ${dir}"
@@ -941,6 +939,7 @@ clean_mesa_shader_cache() {
 	done
 }
 
+# FIXED 8: fontconfig cache rebuild for both user and root
 clean_fontconfig_cache() {
 	if is_skipped "fontconfig"; then
 		print_status "Fontconfig cache" skip
@@ -960,8 +959,7 @@ clean_fontconfig_cache() {
 			if $DRY_RUN; then
 				print_status "${dir} (~$(size_of "$dir")) would be cleaned" dry
 			else
-				local s
-				s=$(size_of "$dir")
+				local s=$(size_of "$dir")
 				sudo rm -rf "${dir:?}"/* 2>/dev/null || true
 				print_status "Cleared ${dir} (~${s})" ok
 				log "Cleared ${dir}"
@@ -969,10 +967,12 @@ clean_fontconfig_cache() {
 		fi
 	done
 
-	# Rebuild font cache
+	# Rebuild font cache for real user and root
 	if ! $DRY_RUN && command_exists fc-cache; then
+		sudo -u "$REAL_USER" fc-cache -f 2>/dev/null || true
+		print_status "Rebuilt font cache (user)" ok
 		fc-cache -f 2>/dev/null || true
-		print_status "Rebuilt font cache" ok
+		print_status "Rebuilt font cache (root)" ok
 	fi
 }
 
@@ -985,7 +985,6 @@ clean_core_dumps() {
 	print_header "Cleaning core dumps"
 	log "Starting core dump cleanup"
 
-	# systemd coredumps
 	local coredump_dir="/var/lib/systemd/coredump"
 	if [[ -d "$coredump_dir" ]]; then
 		if $DRY_RUN; then
@@ -997,7 +996,6 @@ clean_core_dumps() {
 		fi
 	fi
 
-	# /var/crash (Debian/Ubuntu)
 	local crash_dir="/var/crash"
 	if [[ -d "$crash_dir" ]]; then
 		if $DRY_RUN; then
@@ -1028,7 +1026,6 @@ clean_electron_caches() {
 		["Signal"]="${HOME_DIR}/.cache/Signal"
 	)
 
-	# Also check legacy ~/.config locations
 	local -A electron_apps_config=(
 		["VSCode"]="${HOME_DIR}/.config/Code"
 		["Discord"]="${HOME_DIR}/.config/discord"
@@ -1147,7 +1144,6 @@ clean_old_logs() {
 		fi
 	fi
 
-	# Clean old dpkg logs (Debian/Ubuntu)
 	if [[ -d /var/log/dpkg ]]; then
 		if $DRY_RUN; then
 			print_status "DPKG logs older than 90 days would be removed" dry
@@ -1157,7 +1153,6 @@ clean_old_logs() {
 		fi
 	fi
 
-	# Clean old apt logs (Debian/Ubuntu)
 	if [[ -d /var/log/apt ]]; then
 		if $DRY_RUN; then
 			print_status "APT logs older than 30 days would be removed" dry
@@ -1189,7 +1184,6 @@ clean_editor_swap_files() {
 	else
 		local total=0
 
-		# Vim swap files
 		local vim_count
 		vim_count=$(find "${HOME_DIR}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
 		if [[ $vim_count -gt 0 ]]; then
@@ -1197,7 +1191,6 @@ clean_editor_swap_files() {
 			total=$((total + vim_count))
 		fi
 
-		# Emacs auto-save files
 		local emacs_count
 		emacs_count=$(find "${HOME_DIR}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
 		if [[ $emacs_count -gt 0 ]]; then
@@ -1205,7 +1198,6 @@ clean_editor_swap_files() {
 			total=$((total + emacs_count))
 		fi
 
-		# Nano backup files
 		local nano_count
 		nano_count=$(find "${HOME_DIR}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
 		if [[ $nano_count -gt 0 ]]; then
@@ -1253,14 +1245,13 @@ clean_tex_cache() {
 		fi
 	done
 
-	# Rebuild TeX filename database
 	if ! $DRY_RUN && command_exists mktexlsr; then
 		mktexlsr 2>/dev/null || true
 		print_status "Rebuilt TeX filename database" ok
 	fi
 }
 
-# ── New Cleanup Functions (v2.1.0) ───────────────────────────────────────────
+# ── New Cleanup Functions (v2.1.1) ───────────────────────────────────────────
 
 clean_browser_caches() {
 	if is_skipped "browser"; then
@@ -1274,7 +1265,7 @@ clean_browser_caches() {
 	local user_home="${HOME_DIR}"
 	local found=0
 
-	# Chromium-based browsers — clear cache subdirs only, preserve profile data
+	# Chromium-based browsers
 	local -A chromium_browsers=(
 		["Google Chrome"]="${user_home}/.cache/google-chrome"
 		["Chromium"]="${user_home}/.cache/chromium"
@@ -1289,8 +1280,7 @@ clean_browser_caches() {
 		local cache_dir="${chromium_browsers[$browser]}"
 		[[ -d "$cache_dir" ]] || continue
 		found=$((found + 1))
-		local s
-		s=$(size_of "$cache_dir")
+		local s=$(size_of "$cache_dir")
 		if $DRY_RUN; then
 			print_status "${browser} cache (~${s}) would be cleaned" dry
 		else
@@ -1305,7 +1295,63 @@ clean_browser_caches() {
 		fi
 	done
 
-	[[ $found -eq 0 ]] && print_status "No browser caches found" ok
+	[[ $found -eq 0 ]] && print_status "No Chromium-based browser caches found" ok
+}
+
+
+# NEW: clean partial .deb downloads
+clean_deb_partial() {
+	if is_skipped "debpartial"; then
+		print_status "Partial .deb downloads" skip
+		return
+	fi
+
+	local partial_dir="/var/cache/apt/archives/partial"
+	if [[ ! -d "$partial_dir" ]]; then
+		return  # not Debian/Ubuntu or doesn't exist
+	fi
+
+	print_header "Cleaning partial .deb downloads"
+	log "Starting partial .deb cleanup"
+
+	local count=$(find "$partial_dir" -type f 2>/dev/null | wc -l)
+	if [[ $count -gt 0 ]]; then
+		local s=$(size_of "$partial_dir")
+		if $DRY_RUN; then
+			print_status "${count} partial .deb files (~${s}) would be removed" dry
+		else
+			sudo rm -rf "${partial_dir:?}"/* 2>/dev/null || true
+			print_status "Removed ${count} partial .deb files (~${s})" ok
+			log "Removed ${count} partial .deb files from ${partial_dir}"
+		fi
+	else
+		print_status "No partial .deb files found" ok
+	fi
+}
+
+# NEW: clean systemd user cache
+clean_systemd_user_cache() {
+	if is_skipped "sysdcache"; then
+		print_status "Systemd user cache" skip
+		return
+	fi
+
+	local sysd_cache="${HOME_DIR}/.cache/systemd"
+	if [[ ! -d "$sysd_cache" ]]; then
+		return
+	fi
+
+	print_header "Cleaning systemd user cache"
+	log "Starting systemd user cache cleanup"
+
+	local s=$(size_of "$sysd_cache")
+	if $DRY_RUN; then
+		print_status "Systemd user cache (~${s}) would be cleaned" dry
+	else
+		sudo rm -rf "${sysd_cache:?}"/* 2>/dev/null || true
+		print_status "Cleared systemd user cache (~${s})" ok
+		log "Cleared ${sysd_cache}"
+	fi
 }
 
 clean_pnpm_cache() {
@@ -1323,8 +1369,9 @@ clean_pnpm_cache() {
 	log "Starting pnpm cache cleanup"
 
 	if $DRY_RUN; then
-		local user_store root_store
+		local user_store
 		user_store=$(sudo -u "$REAL_USER" pnpm store path 2>/dev/null || echo "${HOME_DIR}/.local/share/pnpm/store")
+		local root_store
 		root_store=$(pnpm store path 2>/dev/null || echo "/root/.local/share/pnpm/store")
 		print_status "User pnpm store (~$(size_of "$user_store")) would be pruned" dry
 		print_status "Root pnpm store (~$(size_of "$root_store")) would be pruned" dry
@@ -1361,8 +1408,7 @@ clean_bun_cache() {
 		if $DRY_RUN; then
 			print_status "Bun install cache (~$(size_of "$bun_cache")) would be cleared" dry
 		else
-			local s
-			s=$(size_of "$bun_cache")
+			local s=$(size_of "$bun_cache")
 			sudo rm -rf "${bun_cache:?}"/* 2>/dev/null || true
 			print_status "Cleared Bun install cache (~${s})" ok
 			log "Cleared Bun install cache: ${bun_cache}"
@@ -1403,8 +1449,7 @@ clean_deno_cache() {
 		if $DRY_RUN; then
 			print_status "Deno cache (~$(size_of "$deno_dir")) would be cleaned" dry
 		else
-			local s
-			s=$(size_of "$deno_dir")
+			local s=$(size_of "$deno_dir")
 			for subdir in deps gen npm registries; do
 				[[ -d "${deno_dir}/${subdir}" ]] && sudo rm -rf "${deno_dir:?}/${subdir}" 2>/dev/null || true
 			done
@@ -1456,8 +1501,7 @@ clean_ruby_cache() {
 
 		for gem_cache in "$user_gem_cache" "$root_gem_cache"; do
 			if [[ -d "$gem_cache" ]]; then
-				local s
-				s=$(size_of "$gem_cache")
+				local s=$(size_of "$gem_cache")
 				sudo rm -rf "${gem_cache:?}"/* 2>/dev/null || true
 				print_status "Cleared gem download cache (~${s})" ok
 				log "Cleared gem download cache: ${gem_cache}"
@@ -1547,7 +1591,6 @@ clean_pipenv_cache() {
 
 	local found=0
 
-	# pip HTTP response cache (safe to delete — just slows first install)
 	for pip_base in "${HOME_DIR}/.cache/pip" "/root/.cache/pip"; do
 		for hcache in "${pip_base}/http" "${pip_base}/http-v2"; do
 			if [[ -d "$hcache" ]]; then
@@ -1555,8 +1598,7 @@ clean_pipenv_cache() {
 				if $DRY_RUN; then
 					print_status "pip HTTP cache (~$(size_of "$hcache")) would be cleared" dry
 				else
-					local s
-					s=$(size_of "$hcache")
+					local s=$(size_of "$hcache")
 					sudo rm -rf "${hcache:?}"/* 2>/dev/null || true
 					print_status "Cleared pip HTTP cache (~${s})" ok
 					log "Cleared pip HTTP cache: ${hcache}"
@@ -1565,7 +1607,6 @@ clean_pipenv_cache() {
 		done
 	done
 
-	# Inform about pipenv virtualenvs (don't auto-delete — user may need them)
 	local pipenv_venv_dir="${HOME_DIR}/.local/share/virtualenvs"
 	if [[ -d "$pipenv_venv_dir" ]]; then
 		local count
@@ -1624,7 +1665,6 @@ clean_wine_shader_cache() {
 	local user_home="${HOME_DIR}"
 	local found=0
 
-	# Wine shader cache
 	local wine_cache="${user_home}/.cache/wine"
 	if [[ -d "$wine_cache" ]]; then
 		found=$((found + 1))
@@ -1638,7 +1678,6 @@ clean_wine_shader_cache() {
 		fi
 	fi
 
-	# Steam/Proton shader cache — can grow to several GB
 	for steam_dir in \
 		"${user_home}/.steam/steam/shadercache" \
 		"${user_home}/.local/share/Steam/shadercache"; do
@@ -1652,11 +1691,10 @@ clean_wine_shader_cache() {
 				print_status "Cleared Steam shader cache (~${s})" ok
 				log "Cleared Steam shader cache at ${steam_dir}"
 			fi
-			break  # skip duplicate if both paths exist (one may be a symlink)
+			break
 		fi
 	done
 
-	# Lutris cache
 	local lutris_cache="${user_home}/.cache/lutris"
 	if [[ -d "$lutris_cache" ]]; then
 		found=$((found + 1))
@@ -1690,7 +1728,6 @@ clean_git_repos() {
 	local user_home="${HOME_DIR}"
 	local -a repos=()
 
-	# Discover git repos in user home; exclude dirs that contain huge non-project content
 	while IFS= read -r -d '' gitdir; do
 		repos+=("${gitdir%/.git}")
 	done < <(find "$user_home" -maxdepth 6 \
@@ -1744,8 +1781,7 @@ clean_apport_reports() {
 		\) 2>/dev/null | wc -l)
 
 	if [[ $count -gt 0 ]]; then
-		local s
-		s=$(size_of "$crash_dir")
+		local s=$(size_of "$crash_dir")
 		if $DRY_RUN; then
 			print_status "${count} crash report files (~${s}) would be removed" dry
 		else
@@ -1784,7 +1820,6 @@ main() {
 	parse_args "$@"
 	ensure_root "$@"
 
-	# Ensure log directory exists
 	mkdir -p "$LOG_DIR" 2>/dev/null || true
 	log "SysSweep v${VERSION} started (user: ${REAL_USER}, dry-run: ${DRY_RUN})"
 
@@ -1800,15 +1835,12 @@ main() {
 		echo ""
 	fi
 
-	local before_kb
-	before_kb=$(disk_used_kb /)
+	local before_kb=$(disk_used_kb /)
 
-	# Show disk usage before
 	echo -e "\e[1;34mDisk usage before cleanup:\e[0m"
 	printf "  Used: %s\n" "$(format_bytes "$before_kb")"
 	echo ""
 
-	# Confirmation
 	if ! $DRY_RUN; then
 		if ! confirm "This will clean system caches and temporary files. Continue?"; then
 			echo -e "\e[33mAborted.\e[0m"
@@ -1846,8 +1878,10 @@ main() {
 	clean_editor_swap_files
 	clean_tex_cache
 
-	# ── New cleanup functions (v2.1.0) ──
+	# ── New cleanup functions (v2.1.1) ──
 	clean_browser_caches
+	clean_deb_partial
+	clean_systemd_user_cache
 	clean_pnpm_cache
 	clean_bun_cache
 	clean_deno_cache
@@ -1861,10 +1895,8 @@ main() {
 	clean_apport_reports
 	clean_locate_database
 
-	local after_kb freed_kb
-	after_kb=$(disk_used_kb /)
+	local after_kb=$(disk_used_kb /)
 
-	# Show disk usage after
 	echo ""
 	echo -e "\e[1;34mDisk usage after cleanup:\e[0m"
 	printf "  Used: %s\n" "$(format_bytes "$after_kb")"
@@ -1872,10 +1904,10 @@ main() {
 	if $DRY_RUN; then
 		print_status "Estimated freed space: 0 (dry run)" info
 	elif (( after_kb <= before_kb )); then
-		freed_kb=$((before_kb - after_kb))
+		local freed_kb=$((before_kb - after_kb))
 		print_status "Estimated freed space: $(format_bytes "$freed_kb")" ok
 	else
-		freed_kb=$((after_kb - before_kb))
+		local freed_kb=$((after_kb - before_kb))
 		print_status "Estimated freed space: 0 (filesystem usage increased by $(format_bytes "$freed_kb"))" warn
 	fi
 	echo ""
