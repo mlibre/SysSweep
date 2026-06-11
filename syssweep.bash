@@ -1,6 +1,7 @@
 #!/bin/bash
 
-set -euo pipefail
+set -uo pipefail
+
 
 # ============================================================================
 # SysSweep — Safe Linux system cleanup script
@@ -10,9 +11,20 @@ VERSION="2.1.0"
 LOG_DIR="${HOME}/.local/share"
 LOG_FILE="${LOG_DIR}/syssweep.log"
 REAL_USER="${SUDO_USER:-$USER}"
+HOME_DIR=$(eval echo "~$REAL_USER")
 DRY_RUN=false
 SKIPPED=()
 TOTAL_FREED=0
+
+
+# ===== Output helpers =====
+
+print_section() {
+    echo
+    echo "══════════════════════════════════════════════════════"
+    echo "  $1"
+    echo "══════════════════════════════════════════════════════"
+}
 
 # ── Root check ───────────────────────────────────────────────────────────────
 
@@ -86,7 +98,7 @@ parse_args() {
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 command_exists() {
-	type "$1" &>/dev/null
+    command -v "$1" >/dev/null 2>&1
 }
 
 is_skipped() {
@@ -112,15 +124,22 @@ print_header() {
 }
 
 print_status() {
-	local msg="$1"
-	local type="${2:-info}"
-	case "$type" in
-	ok) echo -e "  \e[32m✓\e[0m $msg" ;;
-	warn) echo -e "  \e[33m⚠\e[0m $msg" ;;
-	err) echo -e "  \e[31m✗\e[0m $msg" ;;
-	skip) echo -e "  \e[90m○\e[0m $msg (skipped)" ;;
-	dry) echo -e "  \e[35mpreview>\e[0m $msg" ;;
-	esac
+    case "$2" in
+        ok)   echo "  ✓ $1" ;;
+        warn) echo "  ⚠ $1" ;;
+        err)  echo "  ✗ $1" ;;
+        info) echo "  • $1" ;;
+    esac
+}
+
+safe_run() {
+    "$@" >/dev/null 2>&1
+    return $?
+}
+
+run_user() {
+    sudo -u "$REAL_USER" "$@" 2>/dev/null
+    return $?
 }
 
 size_of() {
