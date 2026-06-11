@@ -115,12 +115,7 @@ log() {
 }
 
 print_header() {
-	local msg="$1"
-	echo -e ""
-	echo -e "\e[1;36m══════════════════════════════════════════════════════\e[0m"
-	echo -e "\e[1;36m  ${msg}\e[0m"
-	echo -e "\e[1;36m══════════════════════════════════════════════════════\e[0m"
-	echo -e ""
+	print_section "$1"
 }
 
 print_status() {
@@ -130,16 +125,6 @@ print_status() {
         err)  echo "  ✗ $1" ;;
         info) echo "  • $1" ;;
     esac
-}
-
-safe_run() {
-    "$@" >/dev/null 2>&1
-    return $?
-}
-
-run_user() {
-    sudo -u "$REAL_USER" "$@" 2>/dev/null
-    return $?
 }
 
 size_of() {
