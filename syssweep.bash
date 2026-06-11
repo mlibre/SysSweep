@@ -132,6 +132,23 @@ size_of() {
 	echo "${result:-0}"
 }
 
+disk_used_kb() {
+	df -Pk "$1" | awk 'NR==2 {print $3}'
+}
+
+format_bytes() {
+	local kb="${1:-0}"
+	if (( kb >= 1073741824 )); then
+		awk -v kb="$kb" 'BEGIN { printf "%.1f TiB", kb/1073741824 }'
+	elif (( kb >= 1048576 )); then
+		awk -v kb="$kb" 'BEGIN { printf "%.1f GiB", kb/1048576 }'
+	elif (( kb >= 1024 )); then
+		awk -v kb="$kb" 'BEGIN { printf "%.1f MiB", kb/1024 }'
+	else
+		printf "%s KiB" "$kb"
+	fi
+}
+
 confirm() {
 	local prompt="${1:-Continue?}"
 	if $DRY_RUN; then
@@ -1746,9 +1763,12 @@ main() {
 		echo ""
 	fi
 
+	local before_kb
+	before_kb=$(disk_used_kb /)
+
 	# Show disk usage before
 	echo -e "\e[1;34mDisk usage before cleanup:\e[0m"
-	df -h / | tail -1 | awk '{printf "  Used: %s / %s (%s)\n", $3, $2, $5}'
+	printf "  Used: %s\n" "$(format_bytes "$before_kb")"
 	echo ""
 
 	# Confirmation
@@ -1804,11 +1824,23 @@ main() {
 	clean_apport_reports
 	clean_locate_database
 
+	local after_kb freed_kb
+	after_kb=$(disk_used_kb /)
+
 	# Show disk usage after
 	echo ""
 	echo -e "\e[1;34mDisk usage after cleanup:\e[0m"
-	df -h / | tail -1 | awk '{printf "  Used: %s / %s (%s)\n", $3, $2, $5}'
-	echo ""
+	printf "  Used: %s\n" "$(format_bytes "$after_kb")"
+
+	if $DRY_RUN; then
+		print_status "Estimated freed space: 0 (dry run)" info
+	elif (( after_kb <= before_kb )); then
+		freed_kb=$((before_kb - after_kb))
+		print_status "Estimated freed space: $(format_bytes "$freed_kb")" ok
+	else
+		freed_kb=$((after_kb - before_kb))
+		print_status "Estimated freed space: 0 (filesystem usage increased by $(format_bytes "$freed_kb"))" warn
+	fi
 	echo ""
 	echo -e "\e[1;32m══════════════════════════════════════════════════════\e[0m"
 	echo -e "\e[1;32m  Cleanup complete! Log saved to: ${LOG_FILE}\e[0m"
