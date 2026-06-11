@@ -34,7 +34,7 @@ Usage: sudo ./syssweep.bash [OPTIONS]
 Options:
   --dry-run          Show what would be deleted without deleting
   --skip <function>  Skip a cleanup function (repeatable)
-                     Available: temp, trash, journal, flatpak, docker,
+                     Available: temp, trash, dangling, journal, flatpak, docker,
                      pacman, pamac, apt, python, npm, yarn, cargo,
                      go, snap, mesa, fontconfig, coredumps, electron,
                      buildtools, oldlogs, swaps, tex, locate
@@ -223,6 +223,31 @@ clean_temp_directories() {
 			print_status "Cleared thumbnail cache (~${thumb_size})" ok
 			log "Cleared thumbnail cache"
 		fi
+	fi
+}
+
+clean_dangling_symlinks() {
+	if is_skipped "dangling"; then
+		print_status "Dangling symlinks" skip
+		return
+	fi
+
+	print_header "Cleaning dangling symlinks"
+	log "Starting dangling symlink cleanup"
+
+	local count
+	count=$(find . -xtype l 2>/dev/null | wc -l)
+
+	if [[ $count -gt 0 ]]; then
+		if $DRY_RUN; then
+			print_status "${count} dangling symlinks would be removed from $(pwd)" dry
+		else
+			find . -xtype l -delete 2>/dev/null || true
+			print_status "Removed ${count} dangling symlinks from $(pwd)" ok
+			log "Removed ${count} dangling symlinks from $(pwd)"
+		fi
+	else
+		print_status "No dangling symlinks found in $(pwd)" ok
 	fi
 }
 
@@ -1054,6 +1079,7 @@ main() {
 
 	# Run all cleanup functions
 	clean_temp_directories
+	clean_dangling_symlinks
 	clean_trash_folders
 	clean_journal_logs
 	clean_flatpak_cache
