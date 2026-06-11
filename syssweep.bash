@@ -6,7 +6,7 @@ set -euo pipefail
 # SysSweep — Safe Linux system cleanup script
 # ============================================================================
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 LOG_DIR="${HOME}/.local/share"
 LOG_FILE="${LOG_DIR}/syssweep.log"
 REAL_USER="${SUDO_USER:-$USER}"
@@ -35,10 +35,12 @@ Options:
   --dry-run          Show what would be deleted without deleting
   --skip <function>  Skip a cleanup function (repeatable)
                      Available: temp, trash, dangling, tmpfiles, journal,
-                     flatpak, docker, dockerbuilder, pacman, pamac, apt,
-                     pkgcache, kernels, python, npm, yarn, cargo,
-                     go, snap, mesa, fontconfig, coredumps, electron,
-                     buildtools, oldlogs, swaps, tex, locate
+                                flatpak, docker, dockerbuilder, pacman, pamac, apt,
+                                pkgcache, kernels, python, npm, yarn, cargo,
+                                go, snap, mesa, fontconfig, coredumps, electron,
+                                buildtools, oldlogs, swaps, tex, locate,
+                                browser, pnpm, bun, deno, ruby, composer,
+                                poetry, pipenv, conda, wine, gitgc, apport
   --help             Show this help message
   --version          Show version
 
@@ -1232,6 +1234,475 @@ clean_tex_cache() {
 	fi
 }
 
+# ── New Cleanup Functions (v2.1.0) ───────────────────────────────────────────
+
+clean_browser_caches() {
+	if is_skipped "browser"; then
+		print_status "Browser caches" skip
+		return
+	fi
+
+	print_header "Cleaning browser caches"
+	log "Starting browser cache cleanup"
+
+	local user_home="/home/${REAL_USER}"
+	local found=0
+
+	# Chromium-based browsers — clear cache subdirs only, preserve profile data
+	local -A chromium_browsers=(
+		["Google Chrome"]="${user_home}/.cache/google-chrome"
+		["Chromium"]="${user_home}/.cache/chromium"
+		["Brave"]="${user_home}/.cache/BraveSoftware/Brave-Browser"
+		["Microsoft Edge"]="${user_home}/.cache/microsoft-edge"
+		["Vivaldi"]="${user_home}/.cache/vivaldi"
+		["Opera"]="${user_home}/.cache/opera"
+		["Thorium"]="${user_home}/.cache/thorium"
+	)
+
+	for browser in "${!chromium_browsers[@]}"; do
+		local cache_dir="${chromium_browsers[$browser]}"
+		[[ -d "$cache_dir" ]] || continue
+		found=$((found + 1))
+		local s
+		s=$(size_of "$cache_dir")
+		if $DRY_RUN; then
+			print_status "${browser} cache (~${s}) would be cleaned" dry
+		else
+			while IFS= read -r -d '' d; do
+				sudo rm -rf "${d:?}"/* 2>/dev/null || true
+			done < <(find "$cache_dir" -maxdepth 4 -type d \( \
+				-name "Cache" -o -name "Code Cache" -o \
+				-name "GPUCache" -o -name "ShaderCache" -o \
+				-name "DawnCache" -o -name "BlobStorage" \) -print0 2>/dev/null)
+			print_status "Cleared ${browser} cache (~${s})" ok
+			log "Cleared ${browser} cache"
+		fi
+	done
+
+	[[ $found -eq 0 ]] && print_status "No browser caches found" ok
+}
+
+clean_pnpm_cache() {
+	if is_skipped "pnpm"; then
+		print_status "pnpm" skip
+		return
+	fi
+
+	if ! command_exists pnpm; then
+		print_status "pnpm not found" warn
+		return
+	fi
+
+	print_header "Cleaning pnpm store"
+	log "Starting pnpm cache cleanup"
+
+	if $DRY_RUN; then
+		local store
+		store=$(sudo -u "$REAL_USER" pnpm store path 2>/dev/null || echo "/home/${REAL_USER}/.local/share/pnpm/store")
+		print_status "pnpm store (~$(size_of "$store")) would be pruned" dry
+	else
+		sudo -u "$REAL_USER" pnpm store prune 2>/dev/null || true
+		print_status "Pruned pnpm store (unreferenced packages removed)" ok
+		log "pnpm store pruned"
+	fi
+}
+
+clean_bun_cache() {
+	if is_skipped "bun"; then
+		print_status "Bun" skip
+		return
+	fi
+
+	if ! command_exists bun; then
+		print_status "bun not found" warn
+		return
+	fi
+
+	print_header "Cleaning Bun cache"
+	log "Starting Bun cache cleanup"
+
+	local bun_cache="/home/${REAL_USER}/.bun/install/cache"
+
+	if [[ -d "$bun_cache" ]]; then
+		if $DRY_RUN; then
+			print_status "Bun install cache (~$(size_of "$bun_cache")) would be cleared" dry
+		else
+			local s
+			s=$(size_of "$bun_cache")
+			sudo rm -rf "${bun_cache:?}"/* 2>/dev/null || true
+			print_status "Cleared Bun install cache (~${s})" ok
+			log "Cleared Bun install cache"
+		fi
+	else
+		print_status "No Bun cache found" ok
+	fi
+}
+
+clean_deno_cache() {
+	if is_skipped "deno"; then
+		print_status "Deno" skip
+		return
+	fi
+
+	if ! command_exists deno; then
+		print_status "deno not found" warn
+		return
+	fi
+
+	print_header "Cleaning Deno cache"
+	log "Starting Deno cache cleanup"
+
+	# Deno defaults to ~/.cache/deno; DENO_DIR overrides it
+	local deno_dir="/home/${REAL_USER}/.cache/deno"
+	local env_deno_dir
+	env_deno_dir=$(sudo -u "$REAL_USER" printenv DENO_DIR 2>/dev/null || true)
+	[[ -n "$env_deno_dir" ]] && deno_dir="$env_deno_dir"
+
+	if [[ -d "$deno_dir" ]]; then
+		if $DRY_RUN; then
+			print_status "Deno cache (~$(size_of "$deno_dir")) would be cleaned" dry
+		else
+			local s
+			s=$(size_of "$deno_dir")
+			# Safe to remove: deps (downloaded modules), gen (compiled output), npm
+			# Do NOT remove: location_data (origin storage / localStorage)
+			for subdir in deps gen npm registries; do
+				[[ -d "${deno_dir}/${subdir}" ]] && sudo rm -rf "${deno_dir:?}/${subdir}" 2>/dev/null || true
+			done
+			print_status "Cleared Deno cache (~${s})" ok
+			log "Cleared Deno cache"
+		fi
+	else
+		print_status "No Deno cache found" ok
+	fi
+}
+
+clean_ruby_cache() {
+	if is_skipped "ruby"; then
+		print_status "Ruby/Gems" skip
+		return
+	fi
+
+	if ! command_exists gem; then
+		print_status "gem not found" warn
+		return
+	fi
+
+	print_header "Cleaning Ruby gem cache"
+	log "Starting Ruby gem cleanup"
+
+	if $DRY_RUN; then
+		local gem_dir
+		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "/home/${REAL_USER}/.gem")
+		local gem_cache="${gem_dir}/cache"
+		if [[ -d "$gem_cache" ]]; then
+			local count
+			count=$(find "$gem_cache" -name '*.gem' 2>/dev/null | wc -l)
+			print_status "${count} cached .gem files (~$(size_of "$gem_cache")) would be removed" dry
+		fi
+		print_status "Old gem versions would be removed via gem cleanup" dry
+	else
+		# Remove old gem versions (keeps only the latest)
+		sudo -u "$REAL_USER" gem cleanup 2>/dev/null || true
+		print_status "Removed old gem versions" ok
+		log "Removed old gem versions"
+
+		# Clear the gem download cache (.gem archives)
+		local gem_dir
+		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "/home/${REAL_USER}/.gem")
+		local gem_cache="${gem_dir}/cache"
+		if [[ -d "$gem_cache" ]]; then
+			local s
+			s=$(size_of "$gem_cache")
+			sudo rm -rf "${gem_cache:?}"/* 2>/dev/null || true
+			print_status "Cleared gem download cache (~${s})" ok
+			log "Cleared gem download cache"
+		fi
+
+		# Bundler cached .gem files
+		local bundler_cache="/home/${REAL_USER}/.bundle"
+		if [[ -d "$bundler_cache" ]]; then
+			find "$bundler_cache" -name '*.gem' -delete 2>/dev/null || true
+			print_status "Cleared Bundler .gem files" ok
+		fi
+	fi
+}
+
+clean_composer_cache() {
+	if is_skipped "composer"; then
+		print_status "Composer" skip
+		return
+	fi
+
+	if ! command_exists composer; then
+		print_status "composer not found" warn
+		return
+	fi
+
+	print_header "Cleaning Composer cache"
+	log "Starting Composer cache cleanup"
+
+	if $DRY_RUN; then
+		local composer_cache
+		composer_cache=$(sudo -u "$REAL_USER" composer config --global cache-dir 2>/dev/null \
+			|| echo "/home/${REAL_USER}/.composer/cache")
+		print_status "Composer cache (~$(size_of "$composer_cache")) would be cleared" dry
+	else
+		sudo -u "$REAL_USER" composer clear-cache 2>/dev/null || true
+		print_status "Cleared Composer cache" ok
+		log "Composer cache cleared"
+	fi
+}
+
+clean_poetry_cache() {
+	if is_skipped "poetry"; then
+		print_status "Poetry" skip
+		return
+	fi
+
+	if ! command_exists poetry; then
+		print_status "poetry not found" warn
+		return
+	fi
+
+	print_header "Cleaning Poetry cache"
+	log "Starting Poetry cache cleanup"
+
+	if $DRY_RUN; then
+		local poetry_cache
+		poetry_cache=$(sudo -u "$REAL_USER" poetry config cache-dir 2>/dev/null \
+			|| echo "/home/${REAL_USER}/.cache/pypoetry")
+		print_status "Poetry cache (~$(size_of "$poetry_cache")) would be cleared" dry
+	else
+		# Clear both case variants of the source name
+		sudo -u "$REAL_USER" poetry cache clear --all pypi -n 2>/dev/null || true
+		sudo -u "$REAL_USER" poetry cache clear --all PyPI -n 2>/dev/null || true
+		print_status "Cleared Poetry PyPI download cache" ok
+		log "Poetry cache cleared"
+	fi
+}
+
+clean_pipenv_cache() {
+	if is_skipped "pipenv"; then
+		print_status "Pipenv/pip HTTP cache" skip
+		return
+	fi
+
+	print_header "Cleaning pip HTTP cache"
+	log "Starting pip HTTP cache cleanup"
+
+	local found=0
+
+	# pip HTTP response cache (safe to delete — just slows first install)
+	for pip_base in "/home/${REAL_USER}/.cache/pip" "/root/.cache/pip"; do
+		for hcache in "${pip_base}/http" "${pip_base}/http-v2"; do
+			if [[ -d "$hcache" ]]; then
+				found=$((found + 1))
+				if $DRY_RUN; then
+					print_status "pip HTTP cache (~$(size_of "$hcache")) would be cleared" dry
+				else
+					local s
+					s=$(size_of "$hcache")
+					sudo rm -rf "${hcache:?}"/* 2>/dev/null || true
+					print_status "Cleared pip HTTP cache (~${s})" ok
+					log "Cleared pip HTTP cache: ${hcache}"
+				fi
+			fi
+		done
+	done
+
+	# Inform about pipenv virtualenvs (don't auto-delete — user may need them)
+	local pipenv_venv_dir="/home/${REAL_USER}/.local/share/virtualenvs"
+	if [[ -d "$pipenv_venv_dir" ]]; then
+		local count
+		count=$(find "$pipenv_venv_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+		if [[ $count -gt 0 ]]; then
+			print_status "${count} pipenv virtualenvs in ${pipenv_venv_dir} — remove manually if unneeded" warn
+		fi
+	fi
+
+	[[ $found -eq 0 ]] && print_status "No pip HTTP cache found" ok
+}
+
+clean_conda_cache() {
+	if is_skipped "conda"; then
+		print_status "Conda/Mamba" skip
+		return
+	fi
+
+	local conda_cmd=""
+	for cmd in conda mamba micromamba; do
+		if command_exists "$cmd"; then
+			conda_cmd="$cmd"
+			break
+		fi
+	done
+
+	if [[ -z "$conda_cmd" ]]; then
+		print_status "conda/mamba not found" warn
+		return
+	fi
+
+	print_header "Cleaning ${conda_cmd} cache"
+	log "Starting ${conda_cmd} cache cleanup"
+
+	if $DRY_RUN; then
+		print_status "${conda_cmd} clean --all would remove tarballs, index cache, and unused packages" dry
+	else
+		sudo -u "$REAL_USER" "$conda_cmd" clean --all -y 2>/dev/null || true
+		print_status "Cleaned ${conda_cmd} tarballs, packages, and index cache" ok
+		log "${conda_cmd} cache cleaned"
+	fi
+}
+
+clean_wine_shader_cache() {
+	if is_skipped "wine"; then
+		print_status "Wine/Steam shader cache" skip
+		return
+	fi
+
+	print_header "Cleaning Wine/Steam shader caches"
+	log "Starting Wine/Steam shader cache cleanup"
+
+	local user_home="/home/${REAL_USER}"
+	local found=0
+
+	# Wine shader cache
+	local wine_cache="${user_home}/.cache/wine"
+	if [[ -d "$wine_cache" ]]; then
+		found=$((found + 1))
+		if $DRY_RUN; then
+			print_status "Wine shader cache (~$(size_of "$wine_cache")) would be cleaned" dry
+		else
+			local s; s=$(size_of "$wine_cache")
+			sudo rm -rf "${wine_cache:?}"/* 2>/dev/null || true
+			print_status "Cleared Wine shader cache (~${s})" ok
+			log "Cleared Wine shader cache"
+		fi
+	fi
+
+	# Steam/Proton shader cache — can grow to several GB
+	for steam_dir in \
+		"${user_home}/.steam/steam/shadercache" \
+		"${user_home}/.local/share/Steam/shadercache"; do
+		if [[ -d "$steam_dir" ]]; then
+			found=$((found + 1))
+			if $DRY_RUN; then
+				print_status "Steam shader cache (~$(size_of "$steam_dir")) would be cleaned" dry
+			else
+				local s; s=$(size_of "$steam_dir")
+				sudo rm -rf "${steam_dir:?}"/* 2>/dev/null || true
+				print_status "Cleared Steam shader cache (~${s})" ok
+				log "Cleared Steam shader cache at ${steam_dir}"
+			fi
+			break  # skip duplicate if both paths exist (one may be a symlink)
+		fi
+	done
+
+	# Lutris cache
+	local lutris_cache="${user_home}/.cache/lutris"
+	if [[ -d "$lutris_cache" ]]; then
+		found=$((found + 1))
+		if $DRY_RUN; then
+			print_status "Lutris cache (~$(size_of "$lutris_cache")) would be cleaned" dry
+		else
+			local s; s=$(size_of "$lutris_cache")
+			sudo rm -rf "${lutris_cache:?}"/* 2>/dev/null || true
+			print_status "Cleared Lutris cache (~${s})" ok
+			log "Cleared Lutris cache"
+		fi
+	fi
+
+	[[ $found -eq 0 ]] && print_status "No Wine/Steam caches found" ok
+}
+
+clean_git_repos() {
+	if is_skipped "gitgc"; then
+		print_status "Git garbage collection" skip
+		return
+	fi
+
+	if ! command_exists git; then
+		print_status "git not found" warn
+		return
+	fi
+
+	print_header "Running Git garbage collection"
+	log "Starting Git GC pass"
+
+	local user_home="/home/${REAL_USER}"
+	local -a repos=()
+
+	# Discover git repos in user home; exclude dirs that contain huge non-project content
+	while IFS= read -r -d '' gitdir; do
+		repos+=("${gitdir%/.git}")
+	done < <(find "$user_home" -maxdepth 6 \
+		-not -path '*/node_modules/*' \
+		-not -path '*/.cargo/*' \
+		-not -path '*/.rustup/*' \
+		-not -path '*/vendor/*' \
+		-not -path '*/.gem/*' \
+		-not -path '*/site-packages/*' \
+		-name '.git' -type d -print0 2>/dev/null)
+
+	if [[ ${#repos[@]} -eq 0 ]]; then
+		print_status "No git repositories found in ${user_home}" ok
+		return
+	fi
+
+	if $DRY_RUN; then
+		print_status "${#repos[@]} repositories found — git gc --prune=now would be run on each" dry
+		return
+	fi
+
+	local gc_count=0
+	for repo in "${repos[@]}"; do
+		[[ -d "${repo}/.git" ]] || continue
+		sudo -u "$REAL_USER" git -C "$repo" gc --prune=now --quiet 2>/dev/null || true
+		gc_count=$((gc_count + 1))
+	done
+
+	print_status "Ran git gc --prune=now on ${gc_count} repositories" ok
+	log "Ran git gc on ${gc_count} repositories"
+}
+
+clean_apport_reports() {
+	if is_skipped "apport"; then
+		print_status "Apport crash reports" skip
+		return
+	fi
+
+	local crash_dir="/var/crash"
+	if [[ ! -d "$crash_dir" ]]; then
+		print_status "Apport crash directory not found" warn
+		return
+	fi
+
+	print_header "Cleaning Apport crash reports"
+	log "Starting Apport crash report cleanup"
+
+	local count
+	count=$(find "$crash_dir" -maxdepth 1 \( \
+		-name '*.crash' -o -name '*.upload' -o -name '*.uploaded' \
+		\) 2>/dev/null | wc -l)
+
+	if [[ $count -gt 0 ]]; then
+		local s
+		s=$(size_of "$crash_dir")
+		if $DRY_RUN; then
+			print_status "${count} crash report files (~${s}) would be removed" dry
+		else
+			sudo find "$crash_dir" -maxdepth 1 \( \
+				-name '*.crash' -o -name '*.upload' -o -name '*.uploaded' \
+				\) -delete 2>/dev/null || true
+			print_status "Removed ${count} crash reports (~${s})" ok
+			log "Removed ${count} Apport crash reports"
+		fi
+	else
+		print_status "No crash reports found" ok
+	fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
@@ -1244,7 +1715,7 @@ main() {
 
 	echo -e "\e[1;35m"
 	echo "  ╔═══════════════════════════════════════════════════╗"
-	echo "  ║          SysSweep v${VERSION}                     ║"
+	echo "  ║          SysSweep v${VERSION}                   ║"
 	echo "  ║        Linux System Cleanup Tool                 ║"
 	echo "  ╚═══════════════════════════════════════════════════╝"
 	echo -e "\e[0m"
@@ -1268,7 +1739,7 @@ main() {
 		echo ""
 	fi
 
-	# Run all cleanup functions
+	# ── Original cleanup functions ──
 	clean_temp_directories
 	clean_dangling_symlinks
 	clean_systemd_tmpfiles
@@ -1296,6 +1767,20 @@ main() {
 	clean_old_logs
 	clean_editor_swap_files
 	clean_tex_cache
+
+	# ── New cleanup functions (v2.1.0) ──
+	clean_browser_caches
+	clean_pnpm_cache
+	clean_bun_cache
+	clean_deno_cache
+	clean_ruby_cache
+	clean_composer_cache
+	clean_poetry_cache
+	clean_pipenv_cache
+	clean_conda_cache
+	clean_wine_shader_cache
+	clean_git_repos
+	clean_apport_reports
 
 	# Show disk usage after
 	echo ""
