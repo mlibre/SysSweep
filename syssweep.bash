@@ -1003,19 +1003,19 @@ clean_electron_caches() {
 	log "Starting Electron cache cleanup"
 
 	local -A electron_apps=(
-		["VSCode"]="${HOME}/.cache/vscode"
-		["Discord"]="${HOME}/.cache/discord"
-		["Slack"]="${HOME}/.cache/Slack"
-		["Spotify"]="${HOME}/.cache/spotify"
-		["Element"]="${HOME}/.cache/element"
-		["Signal"]="${HOME}/.cache/Signal"
+		["VSCode"]="${HOME_DIR}/.cache/vscode"
+		["Discord"]="${HOME_DIR}/.cache/discord"
+		["Slack"]="${HOME_DIR}/.cache/Slack"
+		["Spotify"]="${HOME_DIR}/.cache/spotify"
+		["Element"]="${HOME_DIR}/.cache/element"
+		["Signal"]="${HOME_DIR}/.cache/Signal"
 	)
 
 	# Also check legacy ~/.config locations
 	local -A electron_apps_config=(
-		["VSCode"]="${HOME}/.config/Code"
-		["Discord"]="${HOME}/.config/discord"
-		["Slack"]="${HOME}/.config/Slack"
+		["VSCode"]="${HOME_DIR}/.config/Code"
+		["Discord"]="${HOME_DIR}/.config/discord"
+		["Slack"]="${HOME_DIR}/.config/Slack"
 	)
 
 	local all_dirs=()
@@ -1050,11 +1050,11 @@ clean_build_tool_caches() {
 	log "Starting build tool cache cleanup"
 
 	local -A build_caches=(
-		["Gradle"]="${HOME}/.gradle/caches"
-		["Gradle wrapper"]="${HOME}/.gradle/wrapper/dists"
-		["Maven"]="${HOME}/.m2/repository"
-		["Ccache"]="${HOME}/.cache/ccache"
-		["CMake"]="${HOME}/.cache/CMakeCache"
+		["Gradle"]="${HOME_DIR}/.gradle/caches"
+		["Gradle wrapper"]="${HOME_DIR}/.gradle/wrapper/dists"
+		["Maven"]="${HOME_DIR}/.m2/repository"
+		["Ccache"]="${HOME_DIR}/.cache/ccache"
+		["CMake"]="${HOME_DIR}/.cache/CMakeCache"
 	)
 
 	for tool in "${!build_caches[@]}"; do
@@ -1156,9 +1156,9 @@ clean_editor_swap_files() {
 
 	if $DRY_RUN; then
 		local vim_count emacs_count nano_count
-		vim_count=$(find "${HOME}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
-		emacs_count=$(find "${HOME}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
-		nano_count=$(find "${HOME}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		vim_count=$(find "${HOME_DIR}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		emacs_count=$(find "${HOME_DIR}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
+		nano_count=$(find "${HOME_DIR}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
 
 		[[ $vim_count -gt 0 ]] && print_status "${vim_count} Vim swap files would be removed" dry
 		[[ $emacs_count -gt 0 ]] && print_status "${emacs_count} Emacs auto-save files would be removed" dry
@@ -1168,25 +1168,25 @@ clean_editor_swap_files() {
 
 		# Vim swap files
 		local vim_count
-		vim_count=$(find "${HOME}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		vim_count=$(find "${HOME_DIR}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
 		if [[ $vim_count -gt 0 ]]; then
-			find "${HOME}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -delete 2>/dev/null || true
+			find "${HOME_DIR}" -maxdepth 5 \( -name '.*.swp' -o -name '.*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -delete 2>/dev/null || true
 			total=$((total + vim_count))
 		fi
 
 		# Emacs auto-save files
 		local emacs_count
-		emacs_count=$(find "${HOME}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
+		emacs_count=$(find "${HOME_DIR}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' 2>/dev/null | wc -l)
 		if [[ $emacs_count -gt 0 ]]; then
-			find "${HOME}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' -delete 2>/dev/null || true
+			find "${HOME_DIR}" -maxdepth 5 \( -name '\#*\#' -o -name '.\#*' \) -not -path '*/node_modules/*' -delete 2>/dev/null || true
 			total=$((total + emacs_count))
 		fi
 
 		# Nano backup files
 		local nano_count
-		nano_count=$(find "${HOME}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
+		nano_count=$(find "${HOME_DIR}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l)
 		if [[ $nano_count -gt 0 ]]; then
-			find "${HOME}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' -delete 2>/dev/null || true
+			find "${HOME_DIR}" -maxdepth 5 -name '*~' -not -path '*/node_modules/*' -not -path '*/.git/*' -delete 2>/dev/null || true
 			total=$((total + nano_count))
 		fi
 
@@ -1214,8 +1214,8 @@ clean_tex_cache() {
 	log "Starting TeX cache cleanup"
 
 	local tex_dirs=(
-		"${HOME}/.cache/texmf"
-		"${HOME}/.texlive"
+		"${HOME_DIR}/.cache/texmf"
+		"${HOME_DIR}/.texlive"
 	)
 
 	for dir in "${tex_dirs[@]}"; do
@@ -1396,7 +1396,7 @@ clean_ruby_cache() {
 
 	if $DRY_RUN; then
 		local gem_dir
-		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "/home/${REAL_USER}/.gem")
+		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "${HOME_DIR}/.gem")
 		local gem_cache="${gem_dir}/cache"
 		if [[ -d "$gem_cache" ]]; then
 			local count
@@ -1412,7 +1412,7 @@ clean_ruby_cache() {
 
 		# Clear the gem download cache (.gem archives)
 		local gem_dir
-		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "/home/${REAL_USER}/.gem")
+		gem_dir=$(sudo -u "$REAL_USER" gem environment gemdir 2>/dev/null || echo "${HOME_DIR}/.gem")
 		local gem_cache="${gem_dir}/cache"
 		if [[ -d "$gem_cache" ]]; then
 			local s
@@ -1448,7 +1448,7 @@ clean_composer_cache() {
 	if $DRY_RUN; then
 		local composer_cache
 		composer_cache=$(sudo -u "$REAL_USER" composer config --global cache-dir 2>/dev/null \
-			|| echo "/home/${REAL_USER}/.composer/cache")
+			|| echo "${HOME_DIR}/.composer/cache")
 		print_status "Composer cache (~$(size_of "$composer_cache")) would be cleared" dry
 	else
 		sudo -u "$REAL_USER" composer clear-cache 2>/dev/null || true
@@ -1474,7 +1474,7 @@ clean_poetry_cache() {
 	if $DRY_RUN; then
 		local poetry_cache
 		poetry_cache=$(sudo -u "$REAL_USER" poetry config cache-dir 2>/dev/null \
-			|| echo "/home/${REAL_USER}/.cache/pypoetry")
+			|| echo "${HOME_DIR}/.cache/pypoetry")
 		print_status "Poetry cache (~$(size_of "$poetry_cache")) would be cleared" dry
 	else
 		# Clear both case variants of the source name
@@ -1497,7 +1497,7 @@ clean_pipenv_cache() {
 	local found=0
 
 	# pip HTTP response cache (safe to delete — just slows first install)
-	for pip_base in "/home/${REAL_USER}/.cache/pip" "/root/.cache/pip"; do
+	for pip_base in "${HOME_DIR}/.cache/pip" "/root/.cache/pip"; do
 		for hcache in "${pip_base}/http" "${pip_base}/http-v2"; do
 			if [[ -d "$hcache" ]]; then
 				found=$((found + 1))
